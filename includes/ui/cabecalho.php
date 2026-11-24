@@ -71,6 +71,14 @@ $paginaAtual  = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
     </script>
 
     <link rel="stylesheet" href="css/estilo.css">
+    <script>
+    (function () {
+        var m = document.cookie.match(/(?:^|; )idioma=([^;]*)/);
+        if (m && decodeURIComponent(m[1]) === "en") { document.documentElement.lang = "en"; document.documentElement.dataset.idioma = "en"; }
+        else { document.documentElement.lang = "pt-PT"; document.documentElement.dataset.idioma = "pt"; }
+    })();
+    </script>
+    <script src="js/idioma.js" defer></script>
     <script src="js/tema.js" defer></script>
 </head>
 <body data-cursor>
@@ -125,6 +133,7 @@ $paginaAtual  = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
             <?php endif; ?>
         </nav>
         <div class="topo-acoes">
+            <button type="button" id="botao-idioma" class="botao-idioma" aria-label="Mudar idioma para inglês" title="Mudar para inglês">PT</button>
             <button type="button" id="botao-tema" class="botao-tema"
                     aria-label="Alternar entre modo claro e modo escuro" aria-pressed="false" title="Alternar tema">
                 <span id="icone-tema" aria-hidden="true">🌙</span>
