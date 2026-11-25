@@ -1,4 +1,4 @@
-# Sistema de Gestão de Clínica Dentária
+# Sistema de Gestão de Clínica Dentária do Rafael
 
 Aplicação web em PHP/MySQL para gestão de clínica dentária (pacientes, marcações, pagamentos, conteúdos, stock e painel administrativo).
 
