@@ -3,6 +3,13 @@
    Paleta: azul-petróleo + verde-menta + off-white quente.
    Tipografia: Fraunces (títulos) + Inter (texto).
    Modo claro/escuro: segue o sistema, e o botão de tema continua a mandar.
+
+   NOTA DE MANUTENÇÃO (header):
+   O header usa flexbox no desktop (>1100px) e grid em ecrã médio
+   (721–1100px) e mobile (<=720px). Esta combinação é determinística:
+   a marca e as ações ficam sempre na 1.ª linha; a nav quebra para a
+   2.ª linha; o dropdown "Clínica" passa a acordeão inline em <=1100px.
+   Não adicionar novas @media que mexam no .topo-* sem remover as antigas.
    ===================================================================== */
 
 /* ---------- Variáveis: modo claro ---------- */
@@ -59,10 +66,7 @@
     --altura-topo:      4rem;
 }
 
-/* ---------- Variáveis: modo escuro ----------
-   1) Automático, se o sistema estiver em escuro e o utilizador não escolheu "claro"
-   2) Manual, com data-tema="escuro" no <html>
-   (As duas listas têm de ficar iguais.) */
+/* ---------- Variáveis: modo escuro ---------- */
 @media (prefers-color-scheme: dark) {
     :root:not([data-tema="claro"]) {
         color-scheme: dark;
@@ -201,9 +205,6 @@ summary:focus-visible {
     border-radius: var(--raio-sm);
 }
 
-/* Útil: esconde visualmente mas fica para leitores de ecrã.
-   FIX 4: .so-leitor e .sr-only faziam exatamente o mesmo (copy/paste).
-   Consolidados num só seletor — nenhuma alteração visual. */
 .so-leitor,
 .sr-only {
     position: absolute;
@@ -217,7 +218,6 @@ summary:focus-visible {
     border: 0;
 }
 
-/* Link "Saltar para o conteúdo" */
 .saltar {
     position: absolute;
     left: var(--esp-4);
@@ -274,6 +274,9 @@ summary:focus-visible {
     align-items: center;
     gap: var(--esp-5);
     flex: 1;
+    /* min-width: 0 é essencial — sem isto, o conteúdo mínimo da nav
+       impede o flex-shrink e empurra os botões da direita para fora. */
+    min-width: 0;
 }
 .topo nav a {
     color: var(--texto-suave);
@@ -302,7 +305,6 @@ summary:focus-visible {
     flex-shrink: 0;
 }
 
-/* Botão de tema */
 .botao-tema {
     width: 2.25rem;
     height: 2.25rem;
@@ -325,7 +327,6 @@ summary:focus-visible {
 }
 .botao-tema:active { transform: rotate(15deg) scale(0.96); }
 
-/* Botão «Sair» / «Entrar» */
 .botao-sair {
     display: inline-block;
     padding: var(--esp-2) var(--esp-4);
@@ -1147,7 +1148,7 @@ fieldset.campo legend {
 }
 .mapa-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
 
-/* ---------- Menu dropdown ---------- */
+/* ---------- Menu dropdown (desktop base — absolute) ---------- */
 .menu-dropdown {
     position: relative;
     display: inline-block;
@@ -1221,7 +1222,7 @@ fieldset.campo legend {
 .badge-menu {
     display: inline-block;
     background: var(--erro);
-    color: #fff;
+    color: var(--fundo);
     border-radius: var(--raio-pill);
     padding: 0 .45rem;
     font-size: .72rem;
@@ -1419,30 +1420,37 @@ fieldset.campo legend {
 }
 
 @media (max-width: 720px) {
-    /* FIX 1: --altura-topo estava a 4rem em mobile, mas com a nav em linha própria
-       o header real fica ~7rem. Âncoras (#conteudo-principal, #titulo-redes-sociais)
-       aterrissavam debaixo do header sticky. Ajustado para 7.5rem. */
+    /* FIX 1 (mantido): --altura-topo a 7.5rem em mobile, porque a nav
+       passa para uma linha própria e o header real é mais alto. */
     :root { --altura-topo: 7.5rem; }
 
+    /* FIX 2 (novo): grid em vez de flex-wrap. A marca e as ações ficam na
+       1.ª linha; a nav quebra para a 2.ª linha. Determinístico e sem
+       overflow horizontal. */
     .topo-conteudo {
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-areas:
+            "marca acoes"
+            "nav nav";
         gap: var(--esp-3);
+        row-gap: var(--esp-2);
         padding: var(--esp-3) var(--esp-4);
+        align-items: center;
     }
+    .marca       { grid-area: marca; justify-self: start; }
+    .topo nav    { grid-area: nav; }
+    .topo-acoes  { grid-area: acoes; justify-self: end; }
+
     .topo nav {
-        order: 3;
         width: 100%;
-        /* flex:1 da regra base tem flex-basis 0 e impede a nav de ocupar
-           uma linha própria; em mobile forçamos a base a 100%. */
-        flex: 1 1 100%;
-        gap: var(--esp-4);
-        overflow-x: auto;
-        padding-bottom: var(--esp-2);
-        scrollbar-width: none;
+        gap: var(--esp-3) var(--esp-4);
+        flex-wrap: wrap;
+        padding-bottom: 0;
+        /* NUNCA overflow-x: auto aqui — corta o dropdown "Clínica". */
     }
-    .topo nav::-webkit-scrollbar { display: none; }
     .topo nav a { white-space: nowrap; }
-    .topo-acoes { margin-left: auto; }
+
     .conteudo { padding: var(--esp-5) var(--esp-4); }
 
     .tabela-editorial th:nth-child(3),
@@ -1450,9 +1458,42 @@ fieldset.campo legend {
         display: none;
     }
 
+    /* FIX 3 (novo): em mobile, o dropdown "Clínica" deixa de ser absolute.
+       Passa a ser acordeão inline, dentro do fluxo da nav. Nada é cortado
+       e nada fica escondido atrás. */
+    .menu-dropdown {
+        position: static;
+        display: block;
+        width: 100%;
+    }
+    .menu-dropdown-botao {
+        width: 100%;
+        justify-content: space-between;
+        padding: var(--esp-2) 0;
+        border-bottom: 1px solid var(--borda);
+    }
     .menu-dropdown-lista {
-        left: 0;
-        right: auto;
+        position: static;
+        opacity: 1;
+        visibility: visible;
+        transform: none;
+        max-height: 0;
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
+        border: 0;
+        box-shadow: none;
+        min-width: 0;
+        background: var(--superficie-alt);
+        border-radius: 0;
+        transition: max-height .3s ease;
+    }
+    .menu-dropdown.aberto .menu-dropdown-lista {
+        max-height: 480px;
+    }
+    .menu-dropdown-lista a {
+        padding: var(--esp-2) var(--esp-4);
+        white-space: normal;
     }
 }
 
@@ -1475,11 +1516,79 @@ fieldset.campo legend {
     .botao-flutuante { padding: .8rem; border-radius: 50%; width: 3rem; height: 3rem; justify-content: center; }
 }
 
-/* ---------- Acessibilidade: reduzir animações ----------
-   FIX 5: dois blocos idênticos consolidados num só.
-   - O `*` já desativa transitions/animações em tudo.
-   - O `[data-animar]` só precisa de forçar o estado final (opacity/transform),
-     porque a regra base `html.js [data-animar] { opacity: 0 }` se aplica mesmo aqui. */
+/* ---------- Ecrã médio (721–1100px) ---------- */
+/* Adicionado depois do mobile para ficar claro: os dois breakpoints são
+   mutuamente exclusivos (min-width 721, max-width 1100) vs (max-width 720). */
+@media (min-width: 721px) and (max-width: 1100px) {
+    /* Grid em 2 linhas: marca + acoes em cima, nav em baixo.
+       Nunca há overflow horizontal. Os botões estão sempre visíveis. */
+    .topo-conteudo {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-areas:
+            "marca acoes"
+            "nav nav";
+        gap: var(--esp-3);
+        row-gap: var(--esp-2);
+        padding: var(--esp-3) var(--esp-4);
+        align-items: center;
+    }
+    .marca       { grid-area: marca; justify-self: start; }
+    .topo nav    { grid-area: nav; }
+    .topo-acoes  { grid-area: acoes; justify-self: end; }
+
+    .topo nav {
+        width: 100%;
+        gap: var(--esp-3) var(--esp-4);
+        flex-wrap: wrap;
+    }
+    .topo nav a { white-space: nowrap; font-size: 0.88rem; }
+    .topo nav .menu-dropdown-botao { font-size: 0.88rem; }
+
+    .botao-sair {
+        padding: var(--esp-2) var(--esp-3);
+        font-size: 0.85rem;
+    }
+    .botao-tema { width: 2rem; height: 2rem; }
+
+    /* Mesmo tratamento de dropdown inline que em mobile. */
+    .menu-dropdown {
+        position: static;
+        display: block;
+        width: 100%;
+    }
+    .menu-dropdown-botao {
+        width: 100%;
+        justify-content: space-between;
+        padding: var(--esp-2) 0;
+        border-bottom: 1px solid var(--borda);
+    }
+    .menu-dropdown-lista {
+        position: static;
+        opacity: 1;
+        visibility: visible;
+        transform: none;
+        max-height: 0;
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
+        border: 0;
+        box-shadow: none;
+        min-width: 0;
+        background: var(--superficie-alt);
+        border-radius: 0;
+        transition: max-height .3s ease;
+    }
+    .menu-dropdown.aberto .menu-dropdown-lista {
+        max-height: 480px;
+    }
+    .menu-dropdown-lista a {
+        padding: var(--esp-2) var(--esp-4);
+        white-space: normal;
+    }
+}
+
+/* ---------- Acessibilidade: reduzir animações ---------- */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         transition-duration: 0.01ms !important;
@@ -1512,9 +1621,8 @@ fieldset.campo legend {
 
 html.js [data-animar] {
     opacity: 0;
-    /* FIX 3: will-change removido. Com 40+ [data-animar] na homepage,
-       isto criava 40 GPU layers — esgotava memória em mobile e causava jank.
-       As transições de opacity/transform já são GPU-aceleradas sem will-change. */
+    /* FIX 3: will-change removido. As transições de opacity/transform já
+       são GPU-aceleradas sem will-change. */
     transition:
         opacity .7s cubic-bezier(.22, .61, .36, 1),
         transform .7s cubic-bezier(.22, .61, .36, 1);
@@ -1582,35 +1690,990 @@ nav a[aria-current="page"] {
     a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid Highlight; }
 }
 
-/* Seletor de idioma — mantém a mesma linguagem visual do botão de tema. */
-.botao-idioma {
-    min-width: 2.75rem;
-    height: 2.25rem;
-    padding: 0 .45rem;
-    border-radius: var(--raio-pill);
-    border: 1px solid var(--borda);
-    background: transparent;
+/* =====================================================================
+   Interior hero — cabeçalho editorial das páginas internas
+   (tratamentos, sobre, dentistas, contactos, etc.)
+   ===================================================================== */
+
+.interior-hero {
+    padding: var(--esp-6) 0 var(--esp-5);
+    margin-bottom: var(--esp-6);
+    border-bottom: 1px solid var(--borda);
+    position: relative;
+}
+
+.interior-hero-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-5);
+    flex-wrap: wrap;
+}
+
+.interior-hero-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--esp-2);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
     color: var(--texto-suave);
-    font-family: var(--fonte-corpo);
-    font-size: .75rem;
-    font-weight: 700;
-    line-height: 1;
-    cursor: pointer;
+}
+.interior-hero-kicker .kicker-num {
+    color: var(--primaria);
+    font-family: var(--fonte-titulo);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+.interior-hero-kicker .kicker-line {
+    display: inline-block;
+    width: 32px;
+    height: 1px;
+    background: var(--borda-forte);
+}
+
+.interior-hero-aside {
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--texto-fraco);
+}
+
+.interior-hero h1 {
+    font-size: clamp(2.4rem, 6vw, 4rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    margin: 0 0 var(--esp-4);
+    color: var(--texto);
+    text-wrap: balance;
+    max-width: 22ch;
+}
+.interior-hero h1 .ponto {
+    color: var(--primaria);
+}
+
+.interior-hero-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: var(--esp-4);
+    flex-wrap: wrap;
+    margin-top: var(--esp-4);
+}
+.interior-hero-bottom p {
+    max-width: 52ch;
+    color: var(--texto-suave);
+    font-size: 1.02rem;
+    line-height: 1.6;
+    margin: 0;
+}
+.interior-hero-bottom > span {
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--texto-fraco);
+    white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+    .interior-hero {
+        padding: var(--esp-5) 0 var(--esp-4);
+        margin-bottom: var(--esp-5);
+    }
+    .interior-hero h1 {
+        font-size: clamp(2rem, 8vw, 3rem);
+    }
+    .interior-hero-aside {
+        display: none;
+    }
+    .interior-hero-bottom > span {
+        font-size: 0.72rem;
+    }
+}
+
+/* =====================================================================
+   Section head — cabeçalho editorial de secções dentro de uma página
+   (mais compacto que .interior-hero, para usar em várias secções da
+   homepage sem competir com o hero)
+   ===================================================================== */
+
+.section-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+        "kicker link"
+        "title  link";
+    gap: var(--esp-2) var(--esp-4);
+    align-items: end;
+    margin: 0 0 var(--esp-5);
+    padding-bottom: var(--esp-4);
+    border-bottom: 1px solid var(--borda);
+}
+
+.section-head-kicker {
+    grid-area: kicker;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--primaria);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--esp-2);
+}
+.section-head-kicker::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 1px;
+    background: var(--borda-forte);
+}
+
+.section-head h2 {
+    grid-area: title;
+    margin: 0;
+    font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--texto);
+    text-wrap: balance;
+}
+
+.section-head-link {
+    grid-area: link;
+    align-self: end;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primaria);
+    text-decoration: none;
+    padding-bottom: 4px;
+    border-bottom: 1px solid transparent;
+    transition: color .15s ease, border-color .15s ease;
+    white-space: nowrap;
+}
+.section-head-link:hover,
+.section-head-link:focus-visible {
+    color: var(--primaria-hover);
+    border-color: var(--primaria);
+    text-decoration: none;
+}
+
+@media (max-width: 720px) {
+    .section-head {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "kicker"
+            "title"
+            "link";
+        gap: var(--esp-2);
+        align-items: start;
+    }
+    .section-head-link {
+        align-self: start;
+        justify-self: start;
+    }
+}
+
+/* =====================================================================
+   CTA final — bloco de conversão antes do rodapé
+   ===================================================================== */
+
+.cta-final {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(var(--esp-6), 6vw, var(--esp-7)) var(--esp-5);
+    margin: var(--esp-7) 0 0;
+    border-radius: var(--raio-md);
+    background: linear-gradient(135deg, var(--primaria) 0%, var(--primaria-hover) 100%);
+    color: var(--primaria-texto);
+    text-align: center;
+    isolation: isolate;
+}
+.cta-final::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse at 80% 20%,
+            color-mix(in srgb, var(--acento) 32%, transparent) 0%,
+            transparent 60%),
+        radial-gradient(ellipse at 15% 90%,
+            color-mix(in srgb, var(--primaria-texto) 8%, transparent) 0%,
+            transparent 50%);
+    pointer-events: none;
+    z-index: -1;
+}
+
+.cta-final-content {
+    position: relative;
+    z-index: 1;
+    max-width: 42rem;
+    margin: 0 auto;
+}
+
+.cta-final h2 {
+    color: var(--primaria-texto);
+    font-size: clamp(1.8rem, 4vw, 2.6rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--esp-3);
+    text-wrap: balance;
+}
+.cta-final h2 .ponto {
+    color: color-mix(in srgb, var(--primaria-texto) 65%, transparent);
+}
+
+.cta-final p {
+    color: color-mix(in srgb, var(--primaria-texto) 88%, transparent);
+    font-size: 1.02rem;
+    line-height: 1.6;
+    margin: 0 auto var(--esp-5);
+    max-width: 34rem;
+}
+
+.cta-final-acoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-3);
+    justify-content: center;
+    align-items: center;
+}
+
+.cta-final .botao-hero {
+    background: var(--superficie) !important;
+    color: var(--primaria) !important;
+    border-color: var(--superficie) !important;
+    padding: 0.9rem 2rem !important;
+    font-weight: 600;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .22);
+}
+.cta-final .botao-hero:hover,
+.cta-final .botao-hero:focus-visible {
+    background: var(--superficie-alt) !important;
+    color: var(--primaria) !important;
+    border-color: var(--superficie-alt) !important;
+}
+
+.cta-final .botao-telefone {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.9rem 1.4rem;
+    background: rgba(255, 255, 255, .12) !important;
+    color: var(--primaria-texto) !important;
+    border: 1px solid rgba(255, 255, 255, .35) !important;
+    border-radius: var(--raio-sm);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.95rem;
+    transition: background .15s ease, border-color .15s ease;
+}
+.cta-final .botao-telefone:hover,
+.cta-final .botao-telefone:focus-visible {
+    background: rgba(255, 255, 255, .22) !important;
+    color: var(--primaria-texto) !important;
+    border-color: rgba(255, 255, 255, .6) !important;
+    text-decoration: none;
+}
+
+@media (max-width: 720px) {
+    .cta-final {
+        padding: var(--esp-6) var(--esp-4);
+        border-radius: var(--raio-md);
+        margin: var(--esp-6) 0 0;
+    }
+    .cta-final-acoes {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .cta-final .botao-hero,
+    .cta-final .botao-telefone {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* =====================================================================
+   Funil de marcação — harmonização visual dos 5 passos
+   Reutiliza .dash-* e .interior-hero quando faz sentido.
+   ===================================================================== */
+
+/* ---------- Entrada do funil (marcar.php) ---------- */
+.funil-start {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--esp-4);
+    margin-top: var(--esp-5);
+}
+
+.funil-start-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-3);
+    padding: var(--esp-6) var(--esp-5);
+    background: var(--superficie);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-md);
+    text-decoration: none;
+    color: var(--texto);
+    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.funil-start-card:hover,
+.funil-start-card:focus-visible {
+    border-color: var(--primaria);
+    box-shadow: var(--sombra-2);
+    transform: translateY(-2px);
+    text-decoration: none;
+    color: var(--texto);
+}
+.funil-start-card .funil-start-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: .15rem;
-    white-space: nowrap;
-    transition: border-color .15s ease, background .15s ease, color .15s ease, transform .2s ease;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    background: var(--primaria-fundo);
+    color: var(--primaria);
+    font-size: 1.2rem;
+    font-weight: 700;
+    font-family: var(--fonte-titulo);
 }
-.botao-idioma:hover {
-    border-color: var(--borda-forte);
-    background: var(--superficie-alt);
+.funil-start-card h2 {
+    font-size: 1.15rem;
+    margin: 0;
     color: var(--texto);
 }
-.botao-idioma:active { transform: scale(.96); }
+.funil-start-card p {
+    margin: 0;
+    color: var(--texto-suave);
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+.funil-start-card .funil-start-cta {
+    margin-top: auto;
+    padding-top: var(--esp-3);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--primaria);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+/* ---------- Calendário do passo 2 ---------- */
+.calendario {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: var(--esp-2);
+    padding: 0;
+    margin: var(--esp-3) 0;
+    list-style: none;
+}
+.calendario .bloco {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: var(--esp-3) var(--esp-2);
+    border-radius: var(--raio-sm);
+    border: 1px solid var(--borda);
+    background: var(--superficie);
+    text-align: center;
+    font-size: 0.82rem;
+    line-height: 1.3;
+    color: var(--texto-suave);
+    min-height: 68px;
+}
+.calendario .bloco strong {
+    color: var(--texto);
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+}
+.calendario .bloco-livre {
+    border-color: var(--borda-forte);
+    background: var(--superficie);
+}
+.calendario .bloco-livre strong { color: var(--texto); }
+.calendario .bloco-ocupado {
+    background: var(--superficie-alt);
+    opacity: 0.7;
+}
+.calendario .bloco-indisponivel {
+    background: var(--superficie-alt);
+    opacity: 0.5;
+    border-style: dashed;
+}
+.calendario .bloco-reservado_outro {
+    background: var(--aviso-fundo);
+    border-color: var(--aviso);
+    color: var(--aviso);
+}
+.calendario .bloco-reservado_meu {
+    background: var(--primaria);
+    border-color: var(--primaria);
+    color: var(--primaria-texto);
+}
+.calendario .bloco-reservado_meu strong { color: var(--primaria-texto); }
+
+.legenda {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-2);
+    padding: 0;
+    margin: 0 0 var(--esp-4);
+    list-style: none;
+    font-size: 0.78rem;
+}
+.legenda .bloco {
+    padding: 4px 10px;
+    border-radius: var(--raio-pill);
+    font-size: 0.72rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-width: 1px;
+    border-style: solid;
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.navdia {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-3);
+    align-items: center;
+    margin-bottom: var(--esp-4);
+}
+.navdia form {
+    display: flex;
+    gap: var(--esp-2);
+    align-items: center;
+}
+.navdia label {
+    font-size: 0.85rem;
+    color: var(--texto-suave);
+}
+
+/* ---------- Resumo (passo 4) ---------- */
+.resumo-totais {
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-3);
+    padding: var(--esp-5);
+    background: var(--primaria-fundo);
+    border: 1px solid var(--primaria);
+    border-radius: var(--raio-md);
+}
+.resumo-totais h2 {
+    margin: 0;
+    color: var(--primaria);
+    font-size: clamp(1.4rem, 3vw, 1.8rem);
+}
+:root[data-tema="escuro"] .resumo-totais {
+    background: var(--primaria-fundo);
+    border-color: var(--primaria);
+}
+:root[data-tema="escuro"] .resumo-totais h2 { color: var(--primaria); }
+
+/* ---------- Confirmação (marcar-confirmacao.php) ---------- */
+.confirmacao-hero {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 200px;
+    padding: var(--esp-6) var(--esp-5);
+    border-radius: var(--raio-md);
+    background:
+        radial-gradient(ellipse at 88% 22%, color-mix(in srgb, var(--acento) 28%, transparent) 0%, transparent 55%),
+        linear-gradient(135deg, var(--primaria) 0%, var(--primaria-hover) 100%);
+    color: var(--primaria-texto);
+    margin-bottom: var(--esp-4);
+}
+.confirmacao-hero-icon {
+    font-size: 2rem;
+    margin-bottom: var(--esp-3);
+    line-height: 1;
+}
+.confirmacao-hero h1 {
+    color: var(--primaria-texto) !important;
+    font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+    margin: 0 0 var(--esp-3);
+    line-height: 1.1;
+}
+.confirmacao-hero p {
+    margin: 0;
+    color: color-mix(in srgb, var(--primaria-texto) 88%, transparent);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    max-width: 55ch;
+}
+.confirmacao-hero[data-estado="cancelada"] {
+    background:
+        radial-gradient(ellipse at 88% 22%, color-mix(in srgb, var(--erro) 22%, transparent) 0%, transparent 55%),
+        linear-gradient(135deg, var(--erro) 0%, color-mix(in srgb, var(--erro) 80%, #000 20%) 100%);
+}
+
+@media (max-width: 720px) {
+    .calendario {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    }
+    .navdia {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .navdia form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .resumo-totais { padding: var(--esp-4); }
+}
+
+/* =====================================================================
+   FIX — botões-link invisíveis após primeira visita
+   O user-agent aplica a:visited / a:link com especificidade igual ao
+   .botao base, o que em alguns browsers faz o texto do botão ficar com
+   a cor de link visitado (quase invisível sobre fundo --primaria).
+   Esta regra força o texto a ficar visível em TODOS os estados:
+   :link, :visited, :hover, :focus, :focus-visible, :active.
+   ===================================================================== */
+
+/* Botão primário (fundo --primaria, texto --primaria-texto) */
+a.botao,
+a.botao:link,
+a.botao:visited {
+    color: var(--primaria-texto);
+    background-color: var(--primaria);
+    border-color: var(--primaria);
+    text-decoration: none;
+}
+a.botao:hover,
+a.botao:focus,
+a.botao:focus-visible,
+a.botao:active {
+    color: var(--primaria-texto);
+    background-color: var(--primaria-hover);
+    border-color: var(--primaria-hover);
+    text-decoration: none;
+}
+
+/* Botão secundário (fundo transparente, texto --primaria) */
+a.botao.botao-secundario,
+a.botao.botao-secundario:link,
+a.botao.botao-secundario:visited {
+    color: var(--primaria);
+    background-color: transparent;
+    border-color: var(--borda-forte);
+}
+a.botao.botao-secundario:hover,
+a.botao.botao-secundario:focus,
+a.botao.botao-secundario:focus-visible,
+a.botao.botao-secundario:active {
+    color: var(--primaria);
+    background-color: var(--primaria-fundo);
+    border-color: var(--primaria);
+    text-decoration: none;
+}
+
+/* Botão perigo (fundo transparente, texto --erro) */
+a.botao.botao-perigo,
+a.botao.botao-perigo:link,
+a.botao.botao-perigo:visited {
+    color: var(--erro);
+    background-color: transparent;
+    border-color: var(--erro);
+}
+a.botao.botao-perigo:hover,
+a.botao.botao-perigo:focus,
+a.botao.botao-perigo:focus-visible,
+a.botao.botao-perigo:active {
+    color: var(--fundo);
+    background-color: var(--erro);
+    border-color: var(--erro);
+    text-decoration: none;
+}
+
+/* CTA final no index.php — o .cta-final já tem regras fortes; garantir :link/:visited */
+.cta-final a.botao.botao-hero,
+.cta-final a.botao.botao-hero:link,
+.cta-final a.botao.botao-hero:visited {
+    color: var(--primaria);
+    background-color: var(--superficie);
+    border-color: var(--superficie);
+}
+.cta-final a.botao.botao-hero:hover,
+.cta-final a.botao.botao-hero:focus,
+.cta-final a.botao.botao-hero:focus-visible,
+.cta-final a.botao.botao-hero:active {
+    color: var(--primaria);
+    background-color: var(--superficie-alt);
+    border-color: var(--superficie-alt);
+}
+
+/* Hero editorial — o .hero-com-slides tem cores fixas, mantém-nas no :visited */
+.hero-com-slides a.botao-hero,
+.hero-com-slides a.botao-hero:link,
+.hero-com-slides a.botao-hero:visited {
+    color: #fff;
+    background-color: #245866;
+    border-color: #245866;
+}
+.hero-com-slides a.botao-hero:hover,
+.hero-com-slides a.botao-hero:focus,
+.hero-com-slides a.botao-hero:focus-visible,
+.hero-com-slides a.botao-hero:active {
+    color: #fff;
+    background-color: #1d4a56;
+    border-color: #1d4a56;
+}
+
+/* =====================================================================
+   Auth — login, registo, recuperar, repor
+   Layout 2 colunas com painel decorativo à direita (esconde em mobile).
+   ===================================================================== */
+
+.auth-page {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    max-width: 960px;
+    margin: 0 auto;
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-md);
+    background: var(--superficie);
+    overflow: hidden;
+    box-shadow: var(--sombra-3);
+}
+
+.auth-side-form {
+    padding: clamp(var(--esp-5), 5vw, var(--esp-7)) clamp(var(--esp-4), 4vw, var(--esp-6));
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+.auth-side-form h1 {
+    margin: 0 0 var(--esp-2);
+    font-size: clamp(1.6rem, 2.8vw, 2rem);
+    line-height: 1.15;
+}
+.auth-side-form .auth-subtitle {
+    color: var(--texto-suave);
+    font-size: 0.95rem;
+    line-height: 1.55;
+    margin: 0 0 var(--esp-5);
+}
+
+.auth-side-art {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(var(--esp-5), 4vw, var(--esp-7)) clamp(var(--esp-4), 4vw, var(--esp-6));
+    color: var(--primaria-texto);
+    background:
+        radial-gradient(ellipse at 90% 20%,
+            color-mix(in srgb, var(--acento) 32%, transparent) 0%,
+            transparent 60%),
+        linear-gradient(135deg, var(--primaria) 0%, var(--primaria-hover) 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: var(--esp-5);
+}
+.auth-side-art .auth-art-kicker {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    opacity: 0.85;
+}
+.auth-side-art .auth-art-title {
+    font-family: var(--fonte-titulo);
+    font-size: clamp(1.7rem, 3.3vw, 2.4rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--primaria-texto);
+}
+.auth-side-art .auth-art-title em {
+    font-style: italic;
+    font-weight: 500;
+    opacity: 0.9;
+}
+.auth-side-art .auth-art-list {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+    display: grid;
+    gap: var(--esp-3);
+}
+.auth-side-art .auth-art-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--esp-3);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: color-mix(in srgb, var(--primaria-texto) 92%, transparent);
+}
+.auth-side-art .auth-art-list li::before {
+    content: '✓';
+    font-weight: 700;
+    color: var(--acento);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.auth-side-art .auth-art-footer {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    opacity: 0.72;
+}
+
+.auth-page .auth-links {
+    margin-top: var(--esp-5);
+    padding-top: var(--esp-4);
+    border-top: 1px solid var(--borda);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-3);
+    justify-content: space-between;
+    font-size: 0.9rem;
+    color: var(--texto-suave);
+}
+
 @media (max-width: 760px) {
-    .topo-conteudo { gap: var(--esp-2); }
-    .topo-acoes { gap: .3rem; }
-    .botao-idioma { min-width: 2.55rem; padding: 0 .3rem; }
+    .auth-page {
+        grid-template-columns: 1fr;
+        box-shadow: none;
+        border-radius: var(--raio-md);
+    }
+    .auth-side-art { display: none; }
+    .auth-side-form { padding: var(--esp-5); }
+    .auth-page .auth-links { justify-content: center; }
+}
+
+/* =====================================================================
+   Blog — cards editoriais clicáveis
+   ===================================================================== */
+
+a.blog-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-3);
+    text-decoration: none;
+    color: var(--texto);
+    transition: border-color .2s ease, transform .2s ease, box-shadow .2s ease;
+}
+a.blog-card:hover,
+a.blog-card:focus-visible {
+    text-decoration: none;
+    color: var(--texto);
+    border-color: var(--primaria);
+    transform: translateY(-2px);
+    box-shadow: var(--sombra-2);
+}
+a.blog-card h2 {
+    font-size: 1.15rem;
+    line-height: 1.25;
+    margin: 0;
+    color: var(--texto);
+    text-wrap: balance;
+}
+a.blog-card .blog-card-date {
+    margin-top: auto;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    color: var(--texto-fraco);
+    font-variant-numeric: tabular-nums;
+}
+
+/* =====================================================================
+   Artigo — conteúdo tipográfico
+   ===================================================================== */
+
+.artigo-conteudo {
+    font-size: 1.05rem;
+    line-height: 1.8;
+    color: var(--texto);
+    max-width: 68ch;
+}
+.artigo-conteudo > p {
+    margin: 0 0 var(--esp-5);
+    text-wrap: pretty;
+}
+.artigo-conteudo > p:last-child {
+    margin-bottom: 0;
+}
+
+.artigo-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--esp-3);
+    align-items: center;
+    margin: 0 0 var(--esp-5);
+    font-size: 0.85rem;
+    color: var(--texto-suave);
+}
+.artigo-meta .etiqueta {
+    margin: 0;
+}
+/* =========================================================
+   Refinamento visual global — clínica
+   Camada de acabamento sobre os componentes existentes.
+   Mantém a estrutura e as funcionalidades atuais.
+   ========================================================= */
+:root {
+    --raio-sm: 9px;
+    --raio-md: 16px;
+    --sombra-1: 0 2px 8px rgba(28,43,47,.045);
+    --sombra-2: 0 10px 28px rgba(28,43,47,.09);
+    --sombra-3: 0 20px 48px rgba(28,43,47,.13);
+}
+.conteudo { max-width: 1240px; padding-top: clamp(1.5rem,3vw,2.75rem); }
+.topo { box-shadow: 0 4px 24px rgba(28,43,47,.045); }
+.topo-conteudo { max-width: 1320px; min-height: 76px; }
+.topo nav a, .topo nav .menu-dropdown-botao { transition: color .2s ease, background .2s ease, border-color .2s ease; }
+.cartao {
+    border-radius: var(--raio-md);
+    box-shadow: 0 4px 18px rgba(28,43,47,.045);
+    transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+}
+.cartao:hover { transform: translateY(-2px); box-shadow: var(--sombra-2); }
+.botao {
+    min-height: 42px;
+    border-radius: 10px;
+    font-weight: 600;
+    letter-spacing: .005em;
+    box-shadow: 0 3px 10px rgba(31,78,95,.12);
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease, border-color .18s ease;
+}
+.botao:hover { transform: translateY(-1px); }
+.botao:active { transform: translateY(0); }
+.botao-secundario, .botao-perigo { box-shadow: none; }
+.campo input[type="text"], .campo input[type="email"], .campo input[type="tel"],
+.campo input[type="password"], .campo input[type="number"], .campo input[type="date"],
+.campo input[type="time"], .campo input[type="datetime-local"], .campo select,
+.campo textarea, select, textarea {
+    min-height: 44px;
+    border-radius: 10px;
+}
+.faq { border-radius: 12px; padding: 1rem 1.2rem; }
+.galeria img { border-radius: 14px; }
+.hero-editorial {
+    box-shadow: none !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 22px !important;
+    isolation: isolate;
+    margin: 0 auto 1.2rem;
+}
+.hero-editorial::before {
+    content: "";
+    position: absolute;
+    z-index: -2;
+    inset: 14px -14px -14px 14px;
+    border-radius: 22px;
+    background-image: var(--hero-next-image, linear-gradient(135deg,#1f4e5f,#7fb8a4));
+    background-size: cover;
+    background-position: center;
+    box-shadow: 0 18px 38px rgba(15,43,50,.2);
+    filter: saturate(.9);
+    transition: background-image .7s ease, transform .7s ease;
+}
+.hero-editorial .hero-slides,
+.hero-editorial .hero-overlay { border-radius: 22px; overflow: hidden; }
+.hero-editorial .hero-content { padding-top: clamp(4.5rem,8vw,7rem); padding-bottom: clamp(4.5rem,8vw,7rem); }
+.hero-editorial .hero-kicker { letter-spacing: .16em; }
+.hero-editorial h1 { max-width: 850px; margin-left: auto; margin-right: auto; }
+.hero-editorial .hero-overlay {
+    background: linear-gradient(105deg,rgba(9,27,34,.76),rgba(9,27,34,.32) 72%,rgba(9,27,34,.48));
+}
+.hero-slide { transform: scale(1.025); transition: opacity 1.2s ease, transform 6s ease; }
+.hero-slide.ativo { transform: scale(1); }
+.hero-editorial .hero-acoes .botao-hero { border-radius: 12px; }
+.calendario {
+    gap: .65rem;
+    grid-template-columns: repeat(auto-fill,minmax(145px,1fr));
+    margin: 1.25rem 0 1.5rem;
+}
+.calendario .bloco {
+    min-height: 88px;
+    justify-content: center;
+    gap: .4rem;
+    padding: 1rem;
+    border-radius: 14px;
+    border: 1px solid var(--borda);
+    box-shadow: 0 3px 12px rgba(28,43,47,.035);
+    transition: transform .18s ease, box-shadow .18s ease;
+}
+.calendario .bloco:hover { transform: translateY(-2px); box-shadow: var(--sombra-2); }
+.calendario .bloco strong { font-size: 1.15rem; letter-spacing: -.02em; }
+.legenda { gap: .55rem; }
+.legenda .bloco { border-radius: 999px; padding: .45rem .8rem; }
+.navdia {
+    padding: 1rem;
+    border: 1px solid var(--borda);
+    border-radius: 14px;
+    background: var(--superficie);
+    box-shadow: var(--sombra-1);
+    gap: .8rem;
+}
+.navdia form { gap: .55rem; }
+@media (max-width: 720px) {
+    .hero-editorial { margin-right: 8px; }
+    .hero-editorial::before { inset: 10px -8px -10px 8px; }
+    .conteudo { padding-left: 1rem; padding-right: 1rem; }
+    .calendario { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cartao, .botao, .calendario .bloco, .hero-slide { transition: none !important; }
+    .cartao:hover, .botao:hover, .calendario .bloco:hover { transform: none; }
+}
+
+
+/* Hero: a fotografia seguinte fica numa camada própria atrás da fotografia atual. */
+.hero-editorial { isolation: isolate; }
+.hero-editorial::before { z-index: 0 !important; }
+.hero-editorial .hero-slides { z-index: 1 !important; }
+.hero-editorial .hero-overlay { z-index: 2 !important; }
+.hero-editorial .hero-content { position: relative; z-index: 3 !important; }
+.hero-editorial .hero-corner { z-index: 4; }
+.hero-editorial::before {
+    transition: transform .9s cubic-bezier(.2,.7,.2,1), filter .9s ease;
+    transform: translateY(0) scale(1);
+}
+.hero-editorial:hover::before { transform: translateY(3px) scale(1.012); }
+@media (prefers-reduced-motion: reduce) {
+    .hero-editorial::before { transition: none !important; }
+    .hero-editorial:hover::before { transform: none; }
+}
+
+/* Camada real da próxima fotografia: não depende de pseudo-elementos. */
+.hero-editorial { position: relative; isolation: isolate; }
+.hero-editorial .hero-next-preview {
+    position: absolute;
+    inset: 14px -14px -14px 14px;
+    z-index: 0;
+    border-radius: 22px;
+    background-image: var(--hero-next-image, linear-gradient(135deg,#1f4e5f,#7fb8a4));
+    background-size: cover;
+    background-position: center;
+    box-shadow: 0 18px 38px rgba(15,43,50,.2);
+    filter: saturate(.9);
+    transition: background-image .5s ease, transform .8s ease;
+    pointer-events: none;
+}
+.hero-editorial .hero-slides { z-index: 1 !important; }
+.hero-editorial .hero-overlay { z-index: 2 !important; }
+.hero-editorial .hero-content { position: relative; z-index: 3 !important; }
+.hero-editorial .hero-corner { z-index: 4; }
+@media (max-width: 720px) {
+    .hero-editorial .hero-next-preview { inset: 10px -8px -10px 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .hero-editorial .hero-next-preview { transition: none !important; }
 }

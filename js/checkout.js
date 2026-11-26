@@ -6,6 +6,7 @@
 
     const publishableKey = form.dataset.publishableKey || '';
     const clientSecret = form.dataset.clientSecret || '';
+    const customerSessionClientSecret = form.dataset.customerSessionSecret || '';
     const returnUrl = form.dataset.returnUrl || '';
     const button = document.getElementById('pay-button');
     const errorBox = document.getElementById('checkout-error');
@@ -42,26 +43,35 @@
         return;
     }
 
+    const tokens = getComputedStyle(document.documentElement);
+    const valorToken = (nome, fallback) => tokens.getPropertyValue(nome).trim() || fallback;
+    const temaEscuro = document.documentElement.dataset.tema === 'escuro';
     const stripe = Stripe(publishableKey);
-    const elements = stripe.elements({
+    const options = {
         clientSecret,
         locale: 'pt',
         appearance: {
-            theme: 'stripe',
+            theme: temaEscuro ? 'night' : 'stripe',
             variables: {
-                colorPrimary: '#0874d1',
-                colorText: '#30343b',
-                colorDanger: '#b42318',
-                fontFamily: 'Arial, Helvetica, sans-serif',
-                fontSizeBase: '12px',
-                borderRadius: '5px',
+                colorPrimary: valorToken('--primaria', '#1f4e5f'),
+                colorText: valorToken('--texto', '#1c2b2f'),
+                colorDanger: valorToken('--erro', '#a8321f'),
+                fontFamily: valorToken('--fonte-corpo', 'Inter, system-ui, sans-serif'),
+                fontSizeBase: '14px',
+                borderRadius: valorToken('--raio-md', '10px'),
                 spacingUnit: '4px'
             }
         }
-    });
+    };
+    if (customerSessionClientSecret) {
+        options.customerSessionClientSecret = customerSessionClientSecret;
+    }
 
+    const elements = stripe.elements(options);
     const paymentElement = elements.create('payment', {
-        layout: { type: 'accordion', defaultCollapsed: false },
+        layout: { type: 'accordion', defaultCollapsed: false, visibleAccordionItemsCount: 3 },
+        paymentMethodOrder: ['mb_way', 'multibanco', 'card'],
+        wallets: { link: 'never', applePay: 'never', googlePay: 'never' },
         fields: {
             billingDetails: {
                 name: 'never',
@@ -93,7 +103,6 @@
         limparErro();
 
         const email = form.querySelector('input[name="email"]');
-        const nomeContato = form.querySelector('input[name="nome"]');
         const telefone = form.querySelector('input[name="telefone"]');
         const pais = form.querySelector('select[name="pais"]');
         const holder = document.getElementById('holder');
@@ -104,14 +113,10 @@
             return;
         }
 
+        const emailValor = email ? email.value.trim() : '';
         const nomeTitular = holder && holder.value.trim() !== ''
             ? holder.value.trim()
-            : (nomeContato ? nomeContato.value.trim() : '');
-        if (nomeTitular === '') {
-            mostrarErro('Indica o nome do titular do cartão.');
-            if (holder) holder.focus();
-            return;
-        }
+            : (emailValor || 'Paciente Clínica Dentária');
 
         if (button) {
             button.disabled = true;
@@ -120,12 +125,12 @@
 
         const billingDetails = {
             name: nomeTitular,
-            email: email ? email.value.trim() : ''
+            email: emailValor
         };
         if (telefone && telefone.value.trim() !== '') {
             billingDetails.phone = telefone.value.trim();
         }
-        if (pais && pais.value && pais.value !== 'other') {
+        if (pais && pais.value) {
             billingDetails.address = { country: pais.value };
         }
 
@@ -141,7 +146,7 @@
             });
         } catch (erro) {
             console.error('Stripe confirmPayment:', erro);
-            mostrarErro('Não foi possível contactar o Stripe. Verifica a ligação e tenta novamente.');
+            mostrarErro('Não foi possível contactar a Stripe. Verifica a ligação e tenta novamente.');
             reporBotao();
             return;
         }
@@ -153,7 +158,11 @@
             return;
         }
 
-        if (paymentIntent && (paymentIntent.status === 'succeeded' || paymentIntent.status === 'processing')) {
+        if (paymentIntent && (
+            paymentIntent.status === 'succeeded' ||
+            paymentIntent.status === 'processing' ||
+            paymentIntent.status === 'requires_action'
+        )) {
             const destino = new URL(returnUrl, window.location.href);
             destino.searchParams.set('payment_intent', paymentIntent.id);
             destino.searchParams.set('redirect_status', paymentIntent.status);
@@ -161,11 +170,7 @@
             return;
         }
 
-        if (paymentIntent && paymentIntent.status === 'requires_action') {
-            mostrarErro('O banco pediu uma confirmação adicional. Segue as instruções apresentadas.');
-        } else {
-            mostrarErro('O pagamento não foi concluído. Tenta novamente.');
-        }
+        mostrarErro('O pagamento não foi concluído. Tenta novamente.');
         reporBotao();
     });
 })();

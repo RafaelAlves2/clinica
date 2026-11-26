@@ -28,3 +28,6 @@ Thumbs.db
 *.orig
 *_backup*.sql
 /clinica_dentaria.sql
+
+# Ferramentas temporárias de teste local (nunca publicar)
+/_opencode-test-login.php

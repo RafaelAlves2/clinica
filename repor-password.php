@@ -12,7 +12,6 @@ $valido = false;
 $userId = 0;
 $nomeUser = '';
 
-// Valida o token na BD (só hash é guardado)
 if ($token !== '' && preg_match('/^[a-f0-9]{64}$/', $token)) {
     $tokenHash = hash('sha256', $token);
     $st = db()->prepare(
@@ -31,7 +30,6 @@ if ($token !== '' && preg_match('/^[a-f0-9]{64}$/', $token)) {
     }
 }
 
-// Ação de repor
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
 
@@ -55,8 +53,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo = db();
             $pdo->beginTransaction();
 
-            // BUGFIX: FOR UPDATE para consumir o token atomicamente.
-            // Sem isto, dois POSTs simultâneos podiam ambos passar a validação inicial.
             $tokenHash = hash('sha256', $token);
             $stLock = $pdo->prepare(
                 "SELECT id FROM tokens_conta
@@ -69,19 +65,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('TOKEN_INVALIDO');
             }
 
-            // Atualiza a password
             $pdo->prepare('UPDATE utilizadores SET password_hash = ? WHERE id = ?')
                 ->execute([password_hash($password, PASSWORD_DEFAULT), $userId]);
 
-            // Marca o token como usado
             $pdo->prepare('UPDATE tokens_conta SET usado_em = NOW() WHERE token_hash = ?')
                 ->execute([$tokenHash]);
 
-            // Regista no log
             registar_admin('repor_password', 'utilizadores', $userId);
 
-            // Notifica o utilizador por notificação interna
-            // BUGFIX: tipo dedicado (antes era 'alteracao_data', que é semanticamente errado)
             $pdo->prepare(
                 "INSERT INTO notificacoes (utilizador_id, tipo, canal, assunto, mensagem, estado, enviada_em)
                  VALUES (?, 'password_alterada', 'interna', 'Palavra-passe alterada', ?, 'enviada', NOW())"
@@ -110,46 +101,66 @@ $tituloPagina = 'Repor palavra-passe';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<section class="cartao cartao-estreito">
-    <h1>Repor palavra-passe</h1>
+<div class="auth-page">
+    <div class="auth-side-form">
+        <h1>Repor palavra-passe</h1>
 
-    <?php if (!$valido): ?>
-        <div class="alerta alerta-erro" role="alert">
-            Este link é inválido ou já expirou. Pede um novo link de recuperação.
-        </div>
-        <p>
-            <a class="botao" href="recuperar-password.php">Pedir novo link</a>
-            <a class="botao botao-secundario" href="login.php">Ir para o login</a>
-        </p>
-
-    <?php else: ?>
-        <p class="ajuda">
-            Olá <strong><?= e($nomeUser) ?></strong>. Define a nova palavra-passe. O link expira em 1 hora e só serve uma vez.
-        </p>
-
-        <?php foreach ($erros as $erro): ?>
-            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-        <?php endforeach; ?>
-
-        <form method="post" action="repor-password.php" novalidate>
-            <?= csrf_campo() ?>
-            <input type="hidden" name="token" value="<?= e($token) ?>">
-
-            <div class="campo">
-                <label for="password">Nova palavra-passe</label>
-                <input type="password" id="password" name="password" required minlength="8" maxlength="72"
-                       autocomplete="new-password" aria-describedby="aj-pwd">
-                <p id="aj-pwd" class="ajuda">Mínimo 8 caracteres, com pelo menos uma letra e um número.</p>
+        <?php if (!$valido): ?>
+            <p class="auth-subtitle">Este link é inválido ou já expirou.</p>
+            <div class="alerta alerta-erro" role="alert">
+                Pede um novo link de recuperação para continuares.
+            </div>
+            <p>
+                <a class="botao" href="recuperar-password.php">Pedir novo link</a>
+            </p>
+            <div class="auth-links">
+                <a href="login.php">← Ir para o login</a>
             </div>
 
-            <div class="campo">
-                <label for="password2">Repetir nova palavra-passe</label>
-                <input type="password" id="password2" name="password2" required maxlength="72" autocomplete="new-password">
-            </div>
+        <?php else: ?>
+            <p class="auth-subtitle">
+                Olá <strong><?= e($nomeUser) ?></strong>. Define a nova palavra-passe. O link expira em 1 hora e só serve uma vez.
+            </p>
 
-            <button type="submit" class="botao botao-grande">Guardar nova palavra-passe</button>
-        </form>
-    <?php endif; ?>
-</section>
+            <?php foreach ($erros as $erro): ?>
+                <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+            <?php endforeach; ?>
+
+            <form method="post" action="repor-password.php" novalidate>
+                <?= csrf_campo() ?>
+                <input type="hidden" name="token" value="<?= e($token) ?>">
+
+                <div class="campo">
+                    <label for="password">Nova palavra-passe</label>
+                    <input type="password" id="password" name="password" required minlength="8" maxlength="72"
+                           autocomplete="new-password" aria-describedby="aj-pwd">
+                    <p id="aj-pwd" class="ajuda">Mínimo 8 caracteres, com pelo menos uma letra e um número.</p>
+                </div>
+
+                <div class="campo">
+                    <label for="password2">Repetir nova palavra-passe</label>
+                    <input type="password" id="password2" name="password2" required maxlength="72" autocomplete="new-password">
+                </div>
+
+                <button type="submit" class="botao botao-grande">Guardar nova palavra-passe</button>
+            </form>
+
+            <div class="auth-links">
+                <a href="login.php">← Voltar ao login</a>
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <aside class="auth-side-art" aria-hidden="true">
+        <span class="auth-art-kicker">Nova palavra-passe</span>
+        <h2 class="auth-art-title">Um novo<br><em>começo.</em></h2>
+        <ul class="auth-art-list">
+            <li>Mínimo 8 caracteres</li>
+            <li>Pelo menos 1 letra e 1 número</li>
+            <li>Válida imediatamente após confirmação</li>
+        </ul>
+        <span class="auth-art-footer"><?= e(defined('CLINICA_NOME') ? CLINICA_NOME : '') ?></span>
+    </aside>
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

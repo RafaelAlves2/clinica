@@ -55,8 +55,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erros[] = 'Escolhe uma classificação de 1 a 5 estrelas.';
     }
 
-    // Aviso de dados sensíveis: o comentário é moderado e pode ser rejeitado
-    // se incluir dados pessoais ou de saúde identificáveis.
     if ($erros === []) {
         try {
             $pdo->prepare(
@@ -85,58 +83,70 @@ require __DIR__ . '/includes/cabecalho.php';
 echo estilos_conta();
 ?>
 
-<h1>Avaliar consulta</h1>
-<?= submenu_conta('marcacoes', nao_lidas($pdo, $u['id'])) ?>
+<div class="dash-root">
 
-<section class="cartao">
-    <dl class="dados">
-        <dt>Paciente</dt><dd><?= e($consulta['paciente']) ?></dd>
-        <dt>Médico dentista</dt><dd><?= e($consulta['dentista']) ?></dd>
-        <dt>Data</dt><dd><?= e((new DateTime($consulta['inicio']))->format('d/m/Y H:i')) ?></dd>
-    </dl>
-
-    <div class="alerta alerta-info" role="note">
-        <strong>Como funciona a publicação da tua avaliação:</strong>
-        <ul>
-            <li>A tua avaliação é <strong>publicada de forma anónima</strong>, sem nome, iniciais ou qualquer elemento que te identifique.</li>
-            <li>O comentário é <strong>moderado pela clínica</strong> antes de ser publicado. Comentários que revelem dados pessoais ou de saúde, ou que identifiquem terceiros, não são publicados.</li>
-            <li>As avaliações refletem experiências individuais. Os resultados clínicos variam de pessoa para pessoa e dependem de fatores individuais.</li>
-            <li>Não são publicadas fotografias de resultados clínicos (antes/depois), em cumprimento das normas da OMD.</li>
-        </ul>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Avaliação</span>
+            <h1>Avaliar consulta</h1>
+            <p>A tua opinião ajuda-nos a melhorar. A avaliação é publicada de forma anónima.</p>
+        </div>
     </div>
 
-    <?php foreach ($erros as $erro): ?>
-        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-    <?php endforeach; ?>
+    <?= submenu_conta('marcacoes', nao_lidas($pdo, $u['id'])) ?>
 
-    <form method="post" action="avaliar.php?consulta=<?= $consultaId ?>" novalidate>
-        <?= csrf_campo() ?>
+    <section class="cartao seccao">
+        <h2>Consulta</h2>
+        <dl class="dados">
+            <dt>Paciente</dt><dd><?= e($consulta['paciente']) ?></dd>
+            <dt>Médico dentista</dt><dd><?= e($consulta['dentista']) ?></dd>
+            <dt>Data</dt><dd><?= e((new DateTime($consulta['inicio']))->format('d/m/Y H:i')) ?></dd>
+        </dl>
 
-        <fieldset class="campo">
-            <legend>Classificação <span class="obrigatorio" aria-hidden="true">*</span></legend>
-            <div class="checks">
-                <?php for ($i = 1; $i <= 5; $i++): ?>
-                    <label class="check">
-                        <input type="radio" name="classificacao" value="<?= $i ?>"
-                               <?= $form['classificacao'] === $i ? 'checked' : '' ?> required>
-                        <?= str_repeat('★', $i) ?> <span class="ajuda">(<?= $i ?>)</span>
-                    </label>
-                <?php endfor; ?>
-            </div>
-        </fieldset>
-
-        <div class="campo">
-            <label for="comentario">Comentário (opcional, máx. 1000 caracteres)</label>
-            <textarea id="comentario" name="comentario" rows="5" maxlength="1000"><?= e($form['comentario']) ?></textarea>
-            <p class="ajuda">
-                Por favor, não incluas dados pessoais (nome, contacto, número de utente)
-                nem informação clínica detalhada. O comentário será moderado antes de ser publicado.
-            </p>
+        <div class="alerta alerta-info" role="note">
+            <strong>Como funciona a publicação da tua avaliação:</strong>
+            <ul>
+                <li>A tua avaliação é <strong>publicada de forma anónima</strong>, sem nome, iniciais ou qualquer elemento que te identifique.</li>
+                <li>O comentário é <strong>moderado pela clínica</strong> antes de ser publicado. Comentários que revelem dados pessoais ou de saúde, ou que identifiquem terceiros, não são publicados.</li>
+                <li>As avaliações refletem experiências individuais. Os resultados clínicos variam de pessoa para pessoa e dependem de fatores individuais.</li>
+                <li>Não são publicadas fotografias de resultados clínicos (antes/depois), em cumprimento das normas da OMD.</li>
+            </ul>
         </div>
 
-        <button type="submit" class="botao">Enviar avaliação</button>
-        <a class="botao botao-secundario" href="minhas-marcacoes.php">Cancelar</a>
-    </form>
-</section>
+        <?php foreach ($erros as $erro): ?>
+            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+        <?php endforeach; ?>
+
+        <form method="post" action="avaliar.php?consulta=<?= $consultaId ?>" novalidate>
+            <?= csrf_campo() ?>
+
+            <fieldset class="campo">
+                <legend>Classificação <span class="obrigatorio" aria-hidden="true">*</span></legend>
+                <div class="checks">
+                    <?php for ($i = 1; $i <= 5; $i++): ?>
+                        <label class="check">
+                            <input type="radio" name="classificacao" value="<?= $i ?>"
+                                   <?= $form['classificacao'] === $i ? 'checked' : '' ?> required>
+                            <span><?= str_repeat('★', $i) ?> <span class="ajuda">(<?= $i ?>)</span></span>
+                        </label>
+                    <?php endfor; ?>
+                </div>
+            </fieldset>
+
+            <div class="campo">
+                <label for="comentario">Comentário (opcional, máx. 1000 caracteres)</label>
+                <textarea id="comentario" name="comentario" rows="5" maxlength="1000"><?= e($form['comentario']) ?></textarea>
+                <p class="ajuda">
+                    Por favor, não incluas dados pessoais (nome, contacto, número de utente)
+                    nem informação clínica detalhada. O comentário será moderado antes de ser publicado.
+                </p>
+            </div>
+
+            <button type="submit" class="botao">Enviar avaliação</button>
+            <a class="botao botao-secundario" href="minhas-marcacoes.php">Cancelar</a>
+        </form>
+    </section>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

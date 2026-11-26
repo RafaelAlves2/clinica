@@ -5,22 +5,18 @@ require __DIR__ . '/includes/marcacao.php';
 
 /* =====================================================================
    PRESTADOR DE PAGAMENTOS SIMULADO (modo demonstração)
-   Aqui não há cartões nem dinheiro a sério. Num site real, esta página seria
-   substituída pelo prestador (ex.: Stripe, SIBS), que devolve a confirmação
-   ao servidor. A marcação só passa a "paga" quando essa confirmação chega.
+   Só disponível em MODO_DEV. Em produção, redireciona antes.
    ===================================================================== */
 
-$u   = exigir_login();
-$pdo = db();
-
-// Simulação apenas para desenvolvimento local explícito. Em produção, usar prestador real.
 if (!MODO_DEV) {
     flash_definir('erro', 'O pagamento eletrónico simulado não está disponível. Por favor, escolha pagamento na clínica ou contacte a receção.');
     redirecionar('area-pessoal.php');
 }
 
+$u   = exigir_login();
+$pdo = db();
 
-limpar_reservas_expiradas($pdo);   // cancela marcações cujo prazo de pagamento acabou
+limpar_reservas_expiradas($pdo);
 
 $ref = (string)($_GET['ref'] ?? $_POST['ref'] ?? '');
 $st = $pdo->prepare('SELECT * FROM marcacoes WHERE referencia = ? AND utilizador_id = ?');
@@ -31,7 +27,6 @@ if (!$marc) {
     redirecionar('area-pessoal.php');
 }
 
-// Último pagamento desta marcação
 $st = $pdo->prepare('SELECT * FROM pagamentos WHERE marcacao_id = ? ORDER BY id DESC LIMIT 1');
 $st->execute([$marc['id']]);
 $pag = $st->fetch();
@@ -54,12 +49,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
 
         if ($acao === 'aprovar') {
-            // "Confirmação do prestador": só agora o pagamento passa a pago e a marcação a confirmada
             $pdo->prepare(
                 "UPDATE pagamentos SET estado = 'pago', prestador = 'demo', referencia_transacao = ?, pago_em = NOW() WHERE id = ?"
             )->execute(['DEMO-' . strtoupper(bin2hex(random_bytes(5))), $pag['id']]);
             $pdo->prepare("UPDATE marcacoes SET estado = 'confirmada' WHERE id = ? AND estado <> 'cancelada'")->execute([$marc['id']]);
-            // CORRIGIDO: não reconfirmar consultas já canceladas
             $pdo->prepare("UPDATE consultas SET estado = 'confirmada' WHERE marcacao_id = ? AND estado <> 'cancelada'")->execute([$marc['id']]);
             $pdo->prepare(
                 'UPDATE horarios_ocupados SET expira_em = NULL
@@ -80,7 +73,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($acao === 'presencial') {
-            // Desiste do pagamento eletrónico: fica confirmada, com o pagamento por fazer na clínica
             $total = $marc['total_previsto'];
             $pdo->prepare("UPDATE pagamentos SET estado = 'recusado' WHERE id = ?")->execute([$pag['id']]);
             $pdo->prepare("INSERT INTO pagamentos (marcacao_id, metodo, valor, estado) VALUES (?, 'presencial', ?, 'pendente')")
@@ -106,7 +98,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Tempo que falta até a marcação ser cancelada
 $st = $pdo->prepare(
     'SELECT MIN(h.expira_em) FROM horarios_ocupados h
        JOIN consultas c ON c.id = h.consulta_id WHERE c.marcacao_id = ?'
@@ -119,40 +110,57 @@ require __DIR__ . '/includes/cabecalho.php';
 echo estilos_marcacao();
 ?>
 
-<?= passos_marcacao(5) ?>
+<div class="dash-root">
 
-<h1>Pagamento eletrónico</h1>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Marcação · Passo 5 (demonstração)</span>
+            <h1>Pagamento eletrónico</h1>
+            <p>Modo demonstração — não há cartões nem dinheiro a sério.</p>
+        </div>
+    </div>
 
-<div class="alerta alerta-info" role="note">
-    <strong>Modo demonstração:</strong> não há cartões nem dinheiro a sério. Escolhe o resultado que queres simular.
+    <?= passos_marcacao(5) ?>
+
+    <div class="alerta alerta-info" role="note">
+        <strong>Modo demonstração:</strong> escolhe abaixo o resultado que queres simular.
+        Em produção, esta página seria substituída pelo prestador real (ex.: Stripe, SIBS).
+    </div>
+
+    <?php if ($erro !== ''): ?>
+        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+    <?php endif; ?>
+
+    <section class="cartao">
+        <h2>Detalhes do pagamento</h2>
+        <dl class="dados">
+            <dt>Referência</dt><dd><strong><?= e($marc['referencia']) ?></strong></dd>
+            <dt>Método</dt><dd><?= e(rotulo('metodo', $pag['metodo'])) ?></dd>
+            <dt>Valor a pagar agora</dt><dd><strong><?= e(formatar_preco($pag['valor'])) ?></strong></dd>
+            <dt>Estado do pagamento</dt><dd><?= e(rotulo('pagamento', $pag['estado'])) ?></dd>
+            <?php if ($limite): ?>
+                <dt>Prazo</dt><dd>até às <?= e((new DateTime((string)$limite))->format('H:i')) ?>, depois a marcação é cancelada</dd>
+            <?php endif; ?>
+        </dl>
+    </section>
+
+    <section class="cartao seccao">
+        <h2>Simular resultado do pagamento</h2>
+        <p class="ajuda">Cada botão simula uma resposta diferente do prestador. Só a aprovação confirma a marcação.</p>
+
+        <form method="post" action="marcar-pagamento-demo.php">
+            <?= csrf_campo() ?>
+            <input type="hidden" name="ref" value="<?= e($ref) ?>">
+            <p>
+                <button type="submit" name="acao" value="aprovar" class="botao">Aprovar pagamento</button>
+                <button type="submit" name="acao" value="recusar" class="botao botao-secundario">Recusar pagamento</button>
+            </p>
+            <p>
+                <button type="submit" name="acao" value="presencial" class="botao botao-secundario">Prefiro pagar na clínica</button>
+            </p>
+        </form>
+    </section>
+
 </div>
-
-<?php if ($erro !== ''): ?>
-    <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-<?php endif; ?>
-
-<section class="cartao">
-    <dl class="dados">
-        <dt>Referência</dt><dd><?= e($marc['referencia']) ?></dd>
-        <dt>Método</dt><dd><?= e(rotulo('metodo', $pag['metodo'])) ?></dd>
-        <dt>Valor a pagar agora</dt><dd><strong><?= e(formatar_preco($pag['valor'])) ?></strong></dd>
-        <dt>Estado do pagamento</dt><dd><?= e(rotulo('pagamento', $pag['estado'])) ?></dd>
-        <?php if ($limite): ?>
-            <dt>Prazo</dt><dd>até às <?= e((new DateTime((string)$limite))->format('H:i')) ?>, depois a marcação é cancelada</dd>
-        <?php endif; ?>
-    </dl>
-
-    <form method="post" action="marcar-pagamento-demo.php">
-        <?= csrf_campo() ?>
-        <input type="hidden" name="ref" value="<?= e($ref) ?>">
-        <p>
-            <button type="submit" name="acao" value="aprovar" class="botao">Simular pagamento aprovado</button>
-            <button type="submit" name="acao" value="recusar" class="botao botao-secundario">Simular pagamento recusado</button>
-        </p>
-        <p>
-            <button type="submit" name="acao" value="presencial" class="botao botao-secundario">Prefiro pagar na clínica</button>
-        </p>
-    </form>
-</section>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

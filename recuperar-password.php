@@ -8,7 +8,7 @@ if (utilizador_atual() !== null) {
 
 $erros  = [];
 $email  = '';
-$link   = '';   // link de recuperação (modo demonstração)
+$link   = '';
 $enviado = false;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -21,7 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erros[] = 'Indica um email válido.';
     }
 
-    // Anti-abuso simples por sessão (não interfere com tentativas de login)
     $agora = time();
     $janela = 900;
     $_SESSION['recup_tentativas'] = array_values(array_filter(
@@ -43,13 +42,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $st->fetch();
 
             if ($user && (int)$user['ativo'] === 1) {
-                // Invalida tokens antigos do mesmo tipo
                 $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'recuperar_password' AND usado_em IS NULL")
                     ->execute([$user['id']]);
 
-                // Gera token (mostra em claro uma única vez, guarda só o hash)
-                $tokenClaro = bin2hex(random_bytes(32));      // 64 chars
-                $tokenHash  = hash('sha256', $tokenClaro);    // 64 chars hex
+                $tokenClaro = bin2hex(random_bytes(32));
+                $tokenHash  = hash('sha256', $tokenClaro);
 
                 $pdo->prepare(
                     "INSERT INTO tokens_conta (utilizador_id, tipo, token_hash, expira_em)
@@ -62,7 +59,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            // Regista a tentativa (mesmo que o email não exista, para anti-enumeração)
             $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 0)')
                 ->execute([mb_substr($email, 0, 190), $ip]);
 
@@ -78,61 +74,68 @@ $tituloPagina = 'Recuperar palavra-passe';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<section class="cartao cartao-estreito">
-    <h1>Recuperar palavra-passe</h1>
+<div class="auth-page">
+    <div class="auth-side-form">
+        <h1>Recuperar palavra-passe</h1>
 
-    <?php if ($enviado): ?>
-        <?php if ($link !== ''): ?>
-            <div class="alerta alerta-sucesso" role="alert">
-                Se existir uma conta com <strong><?= e($email) ?></strong>, foi criado um link de recuperação.
+        <?php if ($enviado): ?>
+            <p class="auth-subtitle">
+                Se existir uma conta com <strong><?= e($email) ?></strong>, vais receber instruções para repor a palavra-passe.
+            </p>
+
+            <?php if ($link !== ''): ?>
+                <div class="alerta alerta-info" role="note">
+                    <strong>Modo demonstração:</strong> num site real este link seria enviado por email.
+                    Aqui podes usá-lo diretamente. Expira em <strong>1 hora</strong> e só serve uma vez.
+                </div>
+                <p>
+                    <a class="botao botao-grande" href="<?= e($link) ?>">Repor palavra-passe agora</a>
+                </p>
+                <p class="ajuda" style="word-break:break-all;"><?= e($link) ?></p>
+            <?php endif; ?>
+
+            <div class="auth-links">
+                <a href="login.php">← Voltar ao login</a>
             </div>
 
-            <div class="alerta alerta-info" role="note">
-                <strong>Modo demonstração:</strong> num site real este link seria enviado por email.
-                Aqui, clica no link abaixo para repor a palavra-passe. O link expira em <strong>1 hora</strong>
-                e só pode ser usado <strong>uma vez</strong>.
-            </div>
-
-            <p>
-                <a class="botao botao-grande" href="<?= e($link) ?>">Repor palavra-passe agora</a>
-            </p>
-            <p class="ajuda" style="word-break:break-all;">
-                Link: <?= e($link) ?>
-            </p>
         <?php else: ?>
-            <div class="alerta alerta-info" role="alert">
-                Se existir uma conta com <strong><?= e($email) ?></strong>, vais receber um email com instruções.
-                Verifica também a pasta de spam.
+            <p class="auth-subtitle">
+                Indica o email com que te registaste. Vais receber um link para definires uma nova palavra-passe.
+            </p>
+
+            <?php foreach ($erros as $erro): ?>
+                <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+            <?php endforeach; ?>
+
+            <form method="post" action="recuperar-password.php" novalidate>
+                <?= csrf_campo() ?>
+
+                <div class="campo">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" required maxlength="190"
+                           autocomplete="email" value="<?= e($email) ?>">
+                </div>
+
+                <button type="submit" class="botao botao-grande">Enviar link de recuperação</button>
+            </form>
+
+            <div class="auth-links">
+                <a href="login.php">← Voltar ao login</a>
+                <a href="registo.php">Criar conta</a>
             </div>
         <?php endif; ?>
+    </div>
 
-        <p><a href="login.php">← Voltar ao login</a></p>
-
-    <?php else: ?>
-        <p class="ajuda">
-            Indica o email com que te registaste. Vais receber um link para definires uma nova palavra-passe.
-        </p>
-
-        <?php foreach ($erros as $erro): ?>
-            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-        <?php endforeach; ?>
-
-        <form method="post" action="recuperar-password.php" novalidate>
-            <?= csrf_campo() ?>
-
-            <div class="campo">
-                <label for="email">Email</label>
-                <input type="email" id="email" name="email" required maxlength="190"
-                       autocomplete="email" value="<?= e($email) ?>">
-            </div>
-
-            <button type="submit" class="botao botao-grande">Enviar link de recuperação</button>
-        </form>
-
-        <p class="texto-centro">
-            <a href="login.php">← Voltar ao login</a>
-        </p>
-    <?php endif; ?>
-</section>
+    <aside class="auth-side-art" aria-hidden="true">
+        <span class="auth-art-kicker">Recuperar acesso</span>
+        <h2 class="auth-art-title">Vamos ajudar-te<br><em>a entrar.</em></h2>
+        <ul class="auth-art-list">
+            <li>Link único enviado por email</li>
+            <li>Válido durante 1 hora</li>
+            <li>Uso único — não reutilizável</li>
+        </ul>
+        <span class="auth-art-footer"><?= e(defined('CLINICA_NOME') ? CLINICA_NOME : '') ?></span>
+    </aside>
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

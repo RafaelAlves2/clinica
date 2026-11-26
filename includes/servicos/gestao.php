@@ -199,22 +199,57 @@ function recusar_pedido(PDO $pdo, int $pedidoId, int $funcionarioId, string $res
     }
 }
 
+/**
+ * Pendências administrativas com a respetiva origem.
+ *
+ * Fonte única de verdade para o badge do menu e para o painel de ações
+ * pendentes. Assim, o número apresentado pode ser sempre explicado.
+ *
+ * @return array<string, array{rotulo: string, valor: int, url: string}>
+ */
+function pendencias_admin(PDO $pdo, array $u): array
+{
+    $papel = (string)($u['papel'] ?? '');
+    if (!in_array($papel, ['admin', 'rececao'], true)) {
+        return [];
+    }
+
+    $itens = [
+        'mensagens' => [
+            'rotulo' => 'Mensagens por ler',
+            'valor'  => (int)$pdo->query("SELECT COUNT(*) FROM mensagens_contacto WHERE lida = 0")->fetchColumn(),
+            'url'    => 'admin/contactos.php',
+        ],
+        'pedidos' => [
+            'rotulo' => 'Pedidos de alteração',
+            'valor'  => (int)$pdo->query("SELECT COUNT(*) FROM pedidos_alteracao WHERE estado = 'pendente'")->fetchColumn(),
+            'url'    => 'admin/pedidos.php',
+        ],
+    ];
+
+    if ($papel === 'admin') {
+        $itens['avaliacoes'] = [
+            'rotulo' => 'Avaliações por moderar',
+            'valor'  => (int)$pdo->query("SELECT COUNT(*) FROM avaliacoes WHERE estado = 'pendente'")->fetchColumn(),
+            'url'    => 'admin/avaliacoes.php',
+        ];
+        $itens['stock'] = [
+            'rotulo' => 'Alertas de stock',
+            'valor'  => (int)$pdo->query("SELECT COUNT(*) FROM stock_materiais WHERE ativo = 1 AND quantidade <= stock_minimo")->fetchColumn(),
+            'url'    => 'admin/stock.php',
+        ];
+    }
+
+    return $itens;
+}
+
 function badge_admin(PDO $pdo, array $u): int
 {
-    if (!in_array($u['papel'], ['admin', 'rececao'], true)) {
-        return 0;
+    $total = 0;
+    foreach (pendencias_admin($pdo, $u) as $item) {
+        $total += (int)$item['valor'];
     }
-
-    $n = 0;
-    $n += (int)$pdo->query("SELECT COUNT(*) FROM mensagens_contacto WHERE lida = 0")->fetchColumn();
-    $n += (int)$pdo->query("SELECT COUNT(*) FROM pedidos_alteracao WHERE estado = 'pendente'")->fetchColumn();
-
-    if ($u['papel'] === 'admin') {
-        $n += (int)$pdo->query("SELECT COUNT(*) FROM avaliacoes WHERE estado = 'pendente'")->fetchColumn();
-        $n += (int)$pdo->query("SELECT COUNT(*) FROM stock_materiais WHERE ativo = 1 AND quantidade <= stock_minimo")->fetchColumn();
-    }
-
-    return $n;
+    return $total;
 }
 
 function estilos_gestao(): string

@@ -34,15 +34,30 @@ if ($compromissos === '') {
 
 $listaCompromissos = array_filter(array_map('trim', explode("\n", $compromissos)));
 
-// BUGFIX: "Portimão" estava hardcoded. Passa a usar a mesma fonte de verdade
-// que o resto do site (clinica_dado, com override da BD).
 $moradaClinica = clinica_dado($pdo, 'clinica_morada', CLINICA_MORADA);
 
 $tituloPagina = 'A Nossa Clínica';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('clinica_titulo', 'A Nossa Clínica')) ?></h1>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">03 / 2026</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>Quem somos</span>
+        </div>
+        <span class="interior-hero-aside"><?= e(clinica_dado($pdo, 'clinica_ers', CLINICA_ERS)) ?></span>
+    </div>
+    <h1><?= e(conteudo('clinica_titulo', 'A Nossa Clínica')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Cuidados de medicina dentária com transparência, proximidade
+            e respeito pela individualidade de cada pessoa.
+        </p>
+        <span>Conhece-nos ↓</span>
+    </div>
+</section>
 
 <section class="cartao seccao">
     <h2>Quem somos</h2>

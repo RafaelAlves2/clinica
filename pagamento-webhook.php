@@ -66,35 +66,38 @@ try {
         exit;
     }
 
-    // --- Reembolso: regista observação idempotente; NÃO altera valores automaticamente ---
-    // FIX (menor): a marca do evento é escrita na observação (não em idempotency_key,
-    // que já está ocupada pelo evento de checkout original). Repetição é detetada pelo marcador.
+    // Reembolso Stripe: reconciliar o montante acumulado e registar o evento
+    // numa tabela própria, sem duplicar notificações em entregas repetidas.
     if (!empty($evento['refund'])) {
-        $evtId = (string)($evento['idempotency_key'] ?? '');
-        $pid   = (int)($evento['pagamento_id'] ?? 0);
         try {
-            if ($pid > 0 && $evtId !== '') {
-                $st = $pdo->prepare('SELECT id, observacoes FROM pagamentos WHERE id = ?');
-                $st->execute([$pid]);
-                if ($row = $st->fetch()) {
-                    $marker = '[Stripe ' . $evtId . ']';
-                    $obs    = (string)($row['observacoes'] ?? '');
-                    if (strpos($obs, $marker) === false) {
-                        $novaObs = trim($obs . "\n" . $marker . ' Evento de reembolso recebido (requer reconciliação administrativa).');
-                        $pdo->prepare('UPDATE pagamentos SET observacoes = ? WHERE id = ?')
-                            ->execute([mb_substr($novaObs, 0, 255), $pid]);
-                    }
-                }
+            $resRefund = gateway_registar_reembolso_stripe($pdo, $evento);
+            try {
+                registar_admin(
+                    'webhook_refund',
+                    'pagamentos',
+                    (int)($resRefund['pagamento_id'] ?? 0),
+                    'Reembolso Stripe reconciliado: ' . formatar_preco((float)($resRefund['valor_reembolso_novo'] ?? 0))
+                    . (!empty($resRefund['deduplicado']) ? ' (duplicado)' : '')
+                );
+            } catch (Throwable $auditError) {
+                error_log('Webhook refund auditoria: ' . $auditError->getMessage());
             }
-            registar_admin('webhook_refund', 'pagamentos', $pid ?: null, 'Evento de reembolso Stripe processado');
+            http_response_code(200);
+            echo json_encode([
+                'ok' => true,
+                'refund_event' => true,
+                'deduplicado' => !empty($resRefund['deduplicado']),
+                'estado' => $resRefund['estado'] ?? null,
+            ]);
+        } catch (GatewayEventoInvalidoException $e) {
+            error_log('Webhook refund rejeitado: ' . $e->getMessage());
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'erro' => 'Evento de reembolso inválido.']);
         } catch (Throwable $e) {
             error_log('Webhook refund erro: ' . $e->getMessage());
             http_response_code(500);
             echo json_encode(['ok' => false, 'erro' => 'Erro interno.']);
-            exit;
         }
-        http_response_code(200);
-        echo json_encode(['ok' => true, 'refund_event' => true]);
         exit;
     }
 

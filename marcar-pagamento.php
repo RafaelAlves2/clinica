@@ -14,7 +14,6 @@ $prefixo  = $c['prefixo'];
 $r        = resumo_da_marcacao($pdo, $c);
 $total    = $r['total'];
 
-// ---------- Formas de pagamento que a clínica oferece (configuráveis na tabela configuracoes) ----------
 $pctSinal   = config_valor($pdo, 'sinal_percentagem', 20);
 $valorSinal = round($total * $pctSinal / 100, 2);
 $horasCancelar = config_valor($pdo, 'cancelamento_antecedencia_h', 24);
@@ -31,11 +30,13 @@ $metodos = [
         'modo' => 'presencial',
     ],
     'sinal' => [
-        'ativo' => config_valor($pdo, 'pagamento_sinal_ativo', 1) === 1 && $valorSinal > 0 && MODO_DEV,
+        'ativo' => config_valor($pdo, 'pagamento_sinal_ativo', 1) === 1 && $valorSinal > 0 && (MODO_DEV || $gatewayConfigurado),
         'titulo' => 'Pagar um sinal agora (' . $pctSinal . '%)',
-        'texto' => 'Pagas ' . formatar_preco($valorSinal) . ' agora e o restante na clínica. (Pagamento em modo demonstração.)',
+        'texto' => $gatewayConfigurado
+            ? 'Pagas ' . formatar_preco($valorSinal) . ' agora através da Stripe; o valor restante é pago na clínica.'
+            : 'Pagas ' . formatar_preco($valorSinal) . ' agora e o restante na clínica. (Pagamento em modo demonstração.)',
         'valor' => $valorSinal,
-        'modo' => 'demo',
+        'modo' => $gatewayConfigurado ? 'gateway_sinal' : 'demo',
     ],
     'eletronico_antecipado' => [
         'ativo' => config_valor($pdo, 'pagamento_online_ativo', 1) === 1 && !$r['estimado'] && (MODO_DEV || $gatewayConfigurado),
@@ -68,7 +69,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
 
-            // 1. A marcação
             $ref = gerar_referencia($pdo);
             $pdo->prepare(
                 'INSERT INTO marcacoes (referencia, utilizador_id, estado, total_previsto, tem_preco_estimado)
@@ -76,7 +76,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             )->execute([$ref, $u['id'], $estado, $total, $r['estimado'] ? 1 : 0]);
             $marcacaoId = (int)$pdo->lastInsertId();
 
-            // 2. As consultas, os tratamentos e a passagem das reservas temporárias a definitivas
             foreach ($r['linhas'] as $l) {
                 $pid = (int)$l['paciente']['id'];
                 $t   = $l['totais'];
@@ -111,8 +110,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 }
 
-                // As reservas temporárias deste paciente passam a ser desta consulta.
-                // Se o pagamento ainda está por fazer, os blocos ficam presos só durante o prazo limite.
                 if ($estado === 'pendente') {
                     $up = $pdo->prepare(
                         'UPDATE horarios_ocupados
@@ -133,17 +130,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            // 3. O pagamento (registado como pendente; só passa a "pago" com confirmação autenticada)
-            $gatewayNome = $modoPagamento === 'gateway' ? 'stripe' : null;
+            $gatewayNome = in_array($modoPagamento, ['gateway', 'gateway_sinal'], true) ? 'stripe' : null;
             $pdo->prepare(
                 "INSERT INTO pagamentos (marcacao_id, metodo, valor, estado, gateway) VALUES (?, ?, ?, 'pendente', ?)"
             )->execute([$marcacaoId, $metodo, $metodos[$metodo]['valor'], $gatewayNome]);
-            $pagamentoId = (int)$pdo->lastInsertId();
 
-            // O PaymentIntent e criado em checkout.php, sempre com o valor
-            // calculado no servidor. Aqui apenas encaminhamos o paciente.
-
-            // 4. Notificação interna
             if ($estado === 'confirmada') {
                 criar_notificacao($pdo, $u['id'], $marcacaoId, 'confirmacao_marcacao', 'Marcação confirmada',
                     'A tua marcação ' . $ref . ' está confirmada. Consulta os detalhes na tua área pessoal.');
@@ -154,12 +145,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->commit();
 
-            // A marcação em curso terminou: evita criar duplicados se o formulário for reenviado
             unset($_SESSION['marcacao']);
 
             if ($estado === 'confirmada') {
                 flash_definir('sucesso', 'Marcação confirmada!');
                 redirecionar('marcar-confirmacao.php?ref=' . urlencode($ref));
+            }
+            if ($modoPagamento === 'gateway_sinal') {
+                redirecionar('checkout.php?ref=' . urlencode($ref) . '&tipo=sinal');
             }
             if ($modoPagamento === 'gateway') {
                 redirecionar('checkout.php?ref=' . urlencode($ref));
@@ -182,46 +175,55 @@ require __DIR__ . '/includes/cabecalho.php';
 echo estilos_marcacao();
 ?>
 
-<?= passos_marcacao(5) ?>
+<div class="dash-root">
 
-<h1>Pagamento</h1>
-<p>Valor total previsto: <strong><?= e(formatar_preco($total)) ?></strong>
-   <?= $r['estimado'] ? '(inclui preços estimados, a confirmar após a avaliação clínica)' : '' ?></p>
-
-<?php foreach ($erros as $erro): ?>
-    <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-<?php endforeach; ?>
-
-<form method="post" action="marcar-pagamento.php" novalidate>
-    <?= csrf_campo() ?>
-
-    <fieldset class="campo">
-        <legend>Forma de pagamento</legend>
-        <?php foreach ($metodos as $chave => $m): if (!$m['ativo'] && !($chave === 'eletronico_antecipado' && $r['estimado'])) { continue; } ?>
-            <label class="check" style="align-items:flex-start; margin-bottom:.8rem !important;">
-                <input type="radio" name="metodo" value="<?= e($chave) ?>"
-                       <?= $metodo === $chave ? 'checked' : '' ?> <?= $m['ativo'] ? '' : 'disabled' ?>>
-                <span>
-                    <strong><?= e($m['titulo']) ?></strong><br>
-                    <span class="ajuda"><?= e($m['texto']) ?></span>
-                </span>
-            </label>
-        <?php endforeach; ?>
-    </fieldset>
-
-    <div class="alerta alerta-info" role="note">
-        <strong>Condições:</strong> podes cancelar ou pedir alteração com pelo menos <?= (int)$horasCancelar ?> horas de antecedência.
-        Os reembolsos e sinais seguem as regras definidas pela clínica.
-        Se escolheres pagamento eletrónico e não o concluíres em <?= (int)$limiteMin ?> minutos, a marcação é cancelada e os horários ficam livres.
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Marcação · Passo 5</span>
+            <h1>Pagamento</h1>
+            <p>Valor total previsto: <strong><?= e(formatar_preco($total)) ?></strong>
+               <?= $r['estimado'] ? '(inclui preços estimados, a confirmar após a avaliação clínica)' : '' ?></p>
+        </div>
     </div>
 
-    <div class="campo campo-checkbox">
-        <input type="checkbox" id="aceita_condicoes" name="aceita_condicoes" value="1" <?= isset($_POST['aceita_condicoes']) ? 'checked' : '' ?>>
-        <label for="aceita_condicoes">Li e aceito as condições indicadas acima.</label>
-    </div>
+    <?= passos_marcacao(5) ?>
 
-    <a class="botao botao-secundario" href="marcar-resumo.php">← Resumo</a>
-    <button type="submit" class="botao">Confirmar marcação</button>
-</form>
+    <?php foreach ($erros as $erro): ?>
+        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+    <?php endforeach; ?>
+
+    <form method="post" action="marcar-pagamento.php" novalidate>
+        <?= csrf_campo() ?>
+
+        <fieldset class="campo">
+            <legend>Forma de pagamento</legend>
+            <?php foreach ($metodos as $chave => $m): if (!$m['ativo'] && !($chave === 'eletronico_antecipado' && $r['estimado'])) { continue; } ?>
+                <label class="check" style="align-items:flex-start; margin-bottom:.8rem !important;">
+                    <input type="radio" name="metodo" value="<?= e($chave) ?>"
+                           <?= $metodo === $chave ? 'checked' : '' ?> <?= $m['ativo'] ? '' : 'disabled' ?>>
+                    <span>
+                        <strong><?= e($m['titulo']) ?></strong><br>
+                        <span class="ajuda"><?= e($m['texto']) ?></span>
+                    </span>
+                </label>
+            <?php endforeach; ?>
+        </fieldset>
+
+        <div class="alerta alerta-info" role="note">
+            <strong>Condições:</strong> podes cancelar ou pedir alteração com pelo menos <?= (int)$horasCancelar ?> horas de antecedência.
+            Os reembolsos e sinais seguem as regras definidas pela clínica.
+            Se escolheres pagamento eletrónico e não o concluíres em <?= (int)$limiteMin ?> minutos, a marcação é cancelada e os horários ficam livres.
+        </div>
+
+        <div class="campo campo-checkbox">
+            <input type="checkbox" id="aceita_condicoes" name="aceita_condicoes" value="1" <?= isset($_POST['aceita_condicoes']) ? 'checked' : '' ?>>
+            <label for="aceita_condicoes">Li e aceito as condições indicadas acima.</label>
+        </div>
+
+        <a class="botao botao-secundario" href="marcar-resumo.php">← Resumo</a>
+        <button type="submit" class="botao">Confirmar marcação</button>
+    </form>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

@@ -50,7 +50,7 @@ try {
 
 $estado = $pagamento ? (string)$pagamento['estado'] : 'pendente';
 $valor = $pagamento ? round((float)$pagamento['valor'], 2) : round((float)$resumo['valor'], 2);
-$terminal = in_array($estado, ['pago', 'falhado', 'recusado', 'cancelado'], true);
+$terminal = in_array($estado, ['pago', 'falhado', 'recusado', 'cancelado', 'reembolsado', 'parcialmente_reembolsado'], true);
 $cartao = '';
 
 if ($estado === 'pago') {
@@ -68,10 +68,14 @@ if ($estado === 'pago') {
 }
 
 $mensagem = match ($estado) {
-    'pago' => 'Pagamento confirmado.',
+    'pago' => $pagamento && (string)($pagamento['metodo'] ?? '') === 'sinal' && (float)$resumo['valor'] > 0.0001
+        ? 'Sinal confirmado. Falta pagar ' . formatar_preco((float)$resumo['valor']) . ' na clínica.'
+        : 'Pagamento confirmado.',
     'em_processamento' => 'O pagamento está a ser processado pelo banco.',
     'falhado', 'recusado' => 'O pagamento não foi autorizado. Nenhum valor foi cobrado.',
     'cancelado' => 'O pagamento foi cancelado.',
+    'reembolsado' => 'O pagamento foi reembolsado. O valor voltou a ficar em dívida na marcação.',
+    'parcialmente_reembolsado' => 'Foi registado um reembolso parcial. Consulta o saldo em falta.',
     'parcialmente_pago' => 'O pagamento parcial foi registado; falta liquidar o restante.',
     default => 'A aguardar confirmação segura da Stripe.',
 };
@@ -87,5 +91,5 @@ $responder(200, [
     'valor' => $valor,
     'valor_formatado' => formatar_preco($valor),
     'cartao' => $cartao,
-    'pode_repetir' => in_array($estado, ['falhado', 'recusado', 'cancelado'], true) && !empty($resumo['pode_pagar']),
+    'pode_repetir' => in_array($estado, ['falhado', 'recusado', 'cancelado', 'reembolsado', 'parcialmente_reembolsado'], true) && !empty($resumo['pode_pagar']),
 ]);

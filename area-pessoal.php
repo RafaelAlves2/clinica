@@ -31,7 +31,7 @@ $st = $pdo->prepare(
 $st->execute([$u['id'], $agora->format('Y-m-d H:i:s')]);
 $proximas = $st->fetchAll();
 
-// Contagem de marcações ativas/passadas (para mostrar nos cartões)
+// Contagem de marcações ativas/passadas
 $st = $pdo->prepare(
     "SELECT
         SUM(c.estado IN ('pendente','confirmada') AND c.inicio >= :agora) AS ativas,
@@ -42,7 +42,6 @@ $st = $pdo->prepare(
       WHERE m.utilizador_id = :uid"
 );
 $st->execute([':agora' => $agora->format('Y-m-d H:i:s'), ':uid' => $u['id']]);
-// FIX: SUM() sem GROUP BY devolve NULL quando não há linhas; normalizar para int.
 $rConta = $st->fetch() ?: [];
 $conta = [
     'ativas'     => (int)($rConta['ativas']     ?? 0),
@@ -68,79 +67,180 @@ foreach ($beneficios as $b) {
     }
 }
 
+$proxima = $proximas[0] ?? null;
+
 $tituloPagina = 'A minha área';
 require __DIR__ . '/includes/cabecalho.php';
 echo estilos_conta();
 ?>
 
-<h1>Olá, <?= e($u['nome']) ?> </h1>
-<?= submenu_conta('inicio', $naoLidas) ?>
+<div class="dash-root">
 
-<div class="grelha seccao">
-    <div class="cartao texto-centro">
-        <p class="numero"><?= $conta['ativas'] ?></p>
-        <p class="ajuda">Consultas por realizar</p>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">A minha área</span>
+            <h1>Olá, <?= e($u['nome']) ?></h1>
+            <p>Resumo das tuas consultas, marcações e benefícios.</p>
+        </div>
+        <div class="dash-avatar" aria-hidden="true">
+            <?= e(mb_strtoupper(mb_substr($u['nome'], 0, 1))) ?>
+        </div>
     </div>
-    <div class="cartao texto-centro">
-        <p class="numero"><?= $conta['concluidas'] ?></p>
-        <p class="ajuda">Concluídas</p>
-    </div>
-    <div class="cartao texto-centro">
-        <p class="numero"><?= $conta['canceladas'] ?></p>
-        <p class="ajuda">Canceladas</p>
-    </div>
-    <div class="cartao texto-centro">
-        <p class="numero"><?= $naoLidas ?></p>
-        <p class="ajuda">Notificações por ler</p>
-    </div>
-</div>
 
-<section class="seccao">
-    <h2>Próximas consultas</h2>
-    <?php if (!$proximas): ?>
-        <div class="alerta alerta-info">
-            Não tens consultas marcadas.
-            <a href="marcar.php">Marcar consulta</a>
+    <?= submenu_conta('inicio', $naoLidas) ?>
+
+    <?php if ($proxima):
+        $ini = utc($proxima['inicio']);
+        $fim = utc($proxima['fim']);
+    ?>
+        <div class="dash-welcome">
+            <span class="dash-kicker">Próxima consulta</span>
+            <h2><?= e(data_extenso($ini)) ?> às <em><?= e($ini->format('H:i')) ?></em></h2>
+            <p>
+                <?= e($proxima['paciente']) ?> com <?= e($proxima['dentista']) ?>
+                · até às <?= e($fim->format('H:i')) ?>
+                · <?= e(formatar_preco($proxima['preco_total'])) ?>
+            </p>
+            <a class="dash-welcome-cta" href="marcar-confirmacao.php?ref=<?= e(urlencode($proxima['referencia'])) ?>">
+                Ver detalhes <span aria-hidden="true">→</span>
+            </a>
         </div>
     <?php else: ?>
-        <div class="grelha grelha-larga">
+        <div class="dash-welcome">
+            <span class="dash-kicker">Sem consultas marcadas</span>
+            <h2>Pronto para a próxima <em>consulta</em>?</h2>
+            <p>Marca uma consulta em poucos passos e começa a cuidar do teu sorriso.</p>
+            <a class="dash-welcome-cta" href="marcar.php">
+                Marcar consulta <span aria-hidden="true">→</span>
+            </a>
+        </div>
+    <?php endif; ?>
+
+    <div class="dash-stat-grid">
+        <a href="minhas-marcacoes.php">
+            <span>Consultas por realizar</span>
+            <strong><?= $conta['ativas'] ?></strong>
+            <small><?= $conta['ativas'] === 1 ? '1 consulta ativa' : $conta['ativas'] . ' consultas ativas' ?></small>
+        </a>
+        <a href="minhas-marcacoes.php">
+            <span>Concluídas</span>
+            <strong><?= $conta['concluidas'] ?></strong>
+            <small>Histórico completo</small>
+        </a>
+        <a href="minhas-marcacoes.php">
+            <span>Canceladas</span>
+            <strong><?= $conta['canceladas'] ?></strong>
+            <small>Ver histórico</small>
+        </a>
+        <a href="notificacoes.php">
+            <span>Notificações</span>
+            <strong><?= (int)$naoLidas ?></strong>
+            <small><?= (int)$naoLidas === 0 ? 'Tudo lido' : 'Por ler' ?></small>
+        </a>
+    </div>
+
+    <?php if ($beneficiosPendentes > 0): ?>
+        <div class="alerta alerta-info" role="status">
+            Tens <?= $beneficiosPendentes ?> benefício(s) a aguardar validação pela clínica.
+            <a href="seguros.php">Ver seguros e benefícios</a>
+        </div>
+    <?php endif; ?>
+
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Agenda</span>
+            <h2>Próximas <span>consultas</span></h2>
+        </div>
+        <?php if ($proximas): ?>
+            <a href="minhas-marcacoes.php">Ver todas</a>
+        <?php endif; ?>
+    </div>
+
+    <?php if (!$proximas): ?>
+        <div class="dash-empty">
+            <span class="dash-empty-symbol" aria-hidden="true">◷</span>
+            <h3>Ainda não tens consultas marcadas</h3>
+            <p>Marca a tua primeira consulta e começa a cuidar do teu sorriso.</p>
+            <a class="botao" href="marcar.php">Marcar consulta</a>
+        </div>
+    <?php else: ?>
+        <div class="dash-list">
             <?php foreach ($proximas as $c):
                 $ini = utc($c['inicio']);
                 $fim = utc($c['fim']);
             ?>
-                <article class="cartao consulta-cartao">
-                    <strong><?= e(data_extenso($ini)) ?>, <?= e($ini->format('H:i')) ?> – <?= e($fim->format('H:i')) ?></strong>
-                    <span><?= e($c['paciente']) ?> com <?= e($c['dentista']) ?></span>
-                    <span class="ajuda">
-                        <?= e(rotulo('marcacao', $c['estado'])) ?> ·
-                        <a href="marcar-confirmacao.php?ref=<?= e(urlencode($c['referencia'])) ?>"><?= e($c['referencia']) ?></a>
-                        · <?= e(formatar_preco($c['preco_total'])) ?>
-                    </span>
-                    <div class="acoes">
-                        <a class="botao botao-secundario" href="minhas-marcacoes.php">Ver todas</a>
+                <div class="dash-list-row">
+                    <span class="dash-list-mark" aria-hidden="true">◷</span>
+                    <div class="dash-list-copy">
+                        <strong>
+                            <?= e(data_extenso($ini)) ?> · <?= e($ini->format('H:i')) ?>–<?= e($fim->format('H:i')) ?>
+                        </strong>
+                        <span><?= e($c['paciente']) ?> · <?= e($c['dentista']) ?></span>
+                        <small>
+                            <?= e(rotulo('marcacao', $c['estado'])) ?>
+                            · <?= e(formatar_preco($c['preco_total'])) ?>
+                        </small>
                     </div>
-                </article>
+                    <div class="dash-list-end">
+                        <a class="dash-list-action" href="marcar-confirmacao.php?ref=<?= e(urlencode($c['referencia'])) ?>">
+                            Ver detalhes
+                        </a>
+                    </div>
+                </div>
             <?php endforeach; ?>
         </div>
     <?php endif; ?>
-</section>
 
-<?php if ($beneficiosPendentes > 0): ?>
-    <div class="alerta alerta-info" role="status">
-        Tens <?= $beneficiosPendentes ?> benefício(s) a aguardar validação pela clínica.
-        <a href="seguros.php">Ver seguros e benefícios</a>
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Atalhos</span>
+            <h2>O que <span>precisas</span></h2>
+        </div>
     </div>
-<?php endif; ?>
 
-<section class="seccao">
-    <h2>Atalhos</h2>
-    <p>
-        <a class="botao" href="marcar.php">Marcar nova consulta</a>
-        <a class="botao botao-secundario" href="minhas-marcacoes.php">As minhas marcações</a>
-        <a class="botao botao-secundario" href="perfil.php">Perfil e familiares</a>
-        <a class="botao botao-secundario" href="seguros.php">Seguros e benefícios</a>
-        <a class="botao botao-secundario" href="notificacoes.php">Notificações</a>
-    </p>
-</section>
+    <div class="dash-list">
+        <a class="dash-list-row" href="marcar.php">
+            <span class="dash-list-mark" aria-hidden="true">+</span>
+            <div class="dash-list-copy">
+                <strong>Marcar nova consulta</strong>
+                <small>Escolhe tratamento, dentista e horário</small>
+            </div>
+            <span class="dash-list-end" aria-hidden="true">→</span>
+        </a>
+        <a class="dash-list-row" href="minhas-marcacoes.php">
+            <span class="dash-list-mark" aria-hidden="true">◷</span>
+            <div class="dash-list-copy">
+                <strong>As minhas marcações</strong>
+                <small>Consulta, altera ou cancela marcações</small>
+            </div>
+            <span class="dash-list-end" aria-hidden="true">→</span>
+        </a>
+        <a class="dash-list-row" href="perfil.php">
+            <span class="dash-list-mark" aria-hidden="true">◉</span>
+            <div class="dash-list-copy">
+                <strong>Perfil e familiares</strong>
+                <small>Dados pessoais e dependentes</small>
+            </div>
+            <span class="dash-list-end" aria-hidden="true">→</span>
+        </a>
+        <a class="dash-list-row" href="seguros.php">
+            <span class="dash-list-mark" aria-hidden="true">◇</span>
+            <div class="dash-list-copy">
+                <strong>Seguros e benefícios</strong>
+                <small>Planos, seguradoras e vantagens</small>
+            </div>
+            <span class="dash-list-end" aria-hidden="true">→</span>
+        </a>
+        <a class="dash-list-row" href="notificacoes.php">
+            <span class="dash-list-mark" aria-hidden="true">◆</span>
+            <div class="dash-list-copy">
+                <strong>Notificações</strong>
+                <small><?= (int)$naoLidas ?> por ler</small>
+            </div>
+            <span class="dash-list-end" aria-hidden="true">→</span>
+        </a>
+    </div>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

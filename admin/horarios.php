@@ -58,14 +58,16 @@ $idsValidos = array_map('intval', array_column($dentistas, 'id'));
 // Quem estamos a editar: 'clinica' ou o id de um dentista
 $alvo       = (string)($_POST['alvo'] ?? $_GET['alvo'] ?? 'clinica');
 $dentistaId = 0;
-if ($alvo !== 'clinica') {
-    $dentistaId = (int)$alvo;
-    if (!in_array($dentistaId, $idsValidos, true)) {
-        $dentistaId = 0;
+$ehClinica  = $alvo === 'clinica';
+
+if (!$ehClinica) {
+    if (!ctype_digit($alvo) || (int)$alvo <= 0 || !in_array((int)$alvo, $idsValidos, true)) {
+        flash_definir('erro', 'O dentista selecionado não existe ou está inativo. O horário da clínica não foi alterado.');
+        redirecionar('admin/horarios.php');
     }
+    $dentistaId = (int)$alvo;
+    $alvo = (string)$dentistaId;
 }
-$ehClinica = $dentistaId === 0;
-$alvo      = $ehClinica ? 'clinica' : (string)$dentistaId;
 
 $erros   = [];
 $aviso   = '';

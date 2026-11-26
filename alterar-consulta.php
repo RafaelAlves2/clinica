@@ -10,7 +10,6 @@ $pdo = db();
 limpar_reservas_expiradas($pdo);
 $agora = agora_bd($pdo);
 
-// ---------- Consulta a alterar ----------
 $consultaId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT) ?: 0;
 if ($consultaId <= 0) {
     flash_definir('erro', 'Consulta inválida.');
@@ -47,7 +46,6 @@ if (utc($consulta['inicio']) < $limiteMinimo) {
     redirecionar('minhas-marcacoes.php');
 }
 
-// Pré-check UX (a garantia atómica é feita dentro da transação no POST)
 $st = $pdo->prepare("SELECT 1 FROM pedidos_alteracao WHERE consulta_id = ? AND estado = 'pendente'");
 $st->execute([$consultaId]);
 if ($st->fetchColumn()) {
@@ -57,9 +55,9 @@ if ($st->fetchColumn()) {
 
 $dentistaId = (int)$consulta['dentista_id'];
 $duracaoMin = (int)$consulta['duracao_min'];
+$blocoAgendaMin = config_valor($pdo, 'bloco_agenda_min', 30);
 $inicioAtual = utc($consulta['inicio']);
 
-// ---------- Datas permitidas ----------
 $hoje   = utc($agora->format('Y-m-d') . ' 00:00:00');
 $maxDia = $hoje->modify('+' . DIAS_ANTECEDENCIA_MAX . ' days');
 
@@ -104,9 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $pdo->beginTransaction();
 
-            // BUGFIX (race condition): lock atómico na consulta antes de re-verificar e inserir.
-            // Sem isto, dois POSTs simultâneos (duplo clique, duas abas) podiam ambos passar
-            // o check inicial e criar 2 pedidos pendentes para a mesma consulta.
             $stLock = $pdo->prepare('SELECT id FROM consultas WHERE id = ? FOR UPDATE');
             $stLock->execute([$consultaId]);
             if (!$stLock->fetchColumn()) {
@@ -115,7 +110,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirecionar('minhas-marcacoes.php');
             }
 
-            // Re-check dentro do lock: se entretanto outro pedido foi criado, recusa.
             $stCheck = $pdo->prepare("SELECT 1 FROM pedidos_alteracao WHERE consulta_id = ? AND estado = 'pendente'");
             $stCheck->execute([$consultaId]);
             if ($stCheck->fetchColumn()) {
@@ -142,7 +136,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ---------- Slots disponíveis no dia escolhido ----------
 $prefixo = prefixo_reserva();
 $slots   = slots_do_dia($pdo, $dentistaId, $dia, $prefixo);
 
@@ -154,6 +147,8 @@ foreach ($slots as $s) {
         $opcoes[] = [
             'inicio' => $s['inicio'],
             'texto'  => $s['hora'] . ' – ' . $fimDT->format('H:i'),
+            'hora'   => $s['hora'],
+            'fim'    => $fimDT->format('H:i'),
         ];
     }
 }
@@ -175,101 +170,152 @@ echo estilos_conta();
 echo estilos_marcacao();
 ?>
 
-<?= submenu_conta('marcacoes', nao_lidas($pdo, $u['id'])) ?>
+<div class="dash-root">
 
-<h1>Pedir alteração de consulta</h1>
-
-<section class="cartao seccao">
-    <h2>Consulta atual</h2>
-    <dl class="dados">
-        <dt>Paciente</dt><dd><?= e($consulta['paciente']) ?></dd>
-        <dt>Dentista</dt><dd><?= e($consulta['dentista']) ?></dd>
-        <dt>Data atual</dt><dd><?= e(data_extenso($inicioAtual)) ?>, <?= e($inicioAtual->format('H:i')) ?> – <?= e(utc($consulta['fim'])->format('H:i')) ?></dd>
-        <dt>Duração</dt><dd><?= e(formatar_duracao($duracaoMin)) ?></dd>
-        <dt>Marcação</dt><dd><?= e($consulta['referencia']) ?></dd>
-    </dl>
-</section>
-
-<?php foreach ($erros as $erro): ?>
-    <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-<?php endforeach; ?>
-
-<section class="seccao">
-    <h2>Escolher nova data</h2>
-
-    <div class="navdia">
-        <?php if ($anterior >= $hoje): ?>
-            <a class="botao botao-secundario" href="alterar-consulta.php?id=<?= $consultaId ?>&data=<?= e($anterior->format('Y-m-d')) ?>">← Dia anterior</a>
-        <?php endif; ?>
-        <?php if ($seguinte <= $maxDia): ?>
-            <a class="botao botao-secundario" href="alterar-consulta.php?id=<?= $consultaId ?>&data=<?= e($seguinte->format('Y-m-d')) ?>">Dia seguinte →</a>
-        <?php endif; ?>
-        <form method="get" action="alterar-consulta.php" class="navdia">
-            <input type="hidden" name="id" value="<?= $consultaId ?>">
-            <label for="data">Ir para</label>
-            <input type="date" id="data" name="data" value="<?= e($dia->format('Y-m-d')) ?>"
-                   min="<?= e($hoje->format('Y-m-d')) ?>" max="<?= e($maxDia->format('Y-m-d')) ?>">
-            <button type="submit" class="botao">Ver</button>
-        </form>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Alteração de consulta</span>
+            <h1>Pedir alteração</h1>
+            <p>Escolhe um novo dia e hora. O pedido fica pendente até a clínica aprovar.</p>
+        </div>
     </div>
 
-    <ul class="legenda" aria-label="Legenda">
-        <?php foreach ($rotulos as $estado => [$simbolo, $texto]): ?>
-            <li class="bloco bloco-<?= e($estado) ?>"><?= e($simbolo . ' ' . $texto) ?></li>
-        <?php endforeach; ?>
-    </ul>
+    <?= submenu_conta('marcacoes', nao_lidas($pdo, $u['id'])) ?>
 
-    <?php if (!$slots): ?>
-        <div class="alerta alerta-info">A clínica está fechada neste dia.</div>
-    <?php else: ?>
-        <ul class="calendario" aria-label="Horários de <?= e(data_extenso($dia)) ?>" style="list-style:none;padding:0;">
-            <?php foreach ($slots as $s): [$simbolo, $texto] = $rotulos[$s['estado']]; ?>
-                <li class="bloco bloco-<?= e($s['estado']) ?>">
-                    <strong><?= e($s['hora']) ?></strong>
-                    <?= e($simbolo . ' ' . $texto) ?>
-                </li>
+    <section class="cartao seccao">
+        <h2>Consulta atual</h2>
+        <dl class="dados">
+            <dt>Paciente</dt><dd><?= e($consulta['paciente']) ?></dd>
+            <dt>Dentista</dt><dd><?= e($consulta['dentista']) ?></dd>
+            <dt>Data atual</dt><dd><?= e(data_extenso($inicioAtual)) ?>, <?= e($inicioAtual->format('H:i')) ?> – <?= e(utc($consulta['fim'])->format('H:i')) ?></dd>
+            <dt>Duração</dt><dd><?= e(formatar_duracao($duracaoMin)) ?></dd>
+            <dt>Marcação</dt><dd><?= e($consulta['referencia']) ?></dd>
+        </dl>
+    </section>
+
+    <?php foreach ($erros as $erro): ?>
+        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+    <?php endforeach; ?>
+
+    <section class="seccao">
+        <h2>Escolher nova data</h2>
+
+        <div class="navdia">
+            <?php if ($anterior >= $hoje): ?>
+                <a class="botao botao-secundario" href="alterar-consulta.php?id=<?= $consultaId ?>&data=<?= e($anterior->format('Y-m-d')) ?>">← Dia anterior</a>
+            <?php endif; ?>
+            <form method="get" action="alterar-consulta.php">
+                <input type="hidden" name="id" value="<?= $consultaId ?>">
+                <label for="data">Ir para</label>
+                <input type="date" id="data" name="data" value="<?= e($dia->format('Y-m-d')) ?>"
+                       min="<?= e($hoje->format('Y-m-d')) ?>" max="<?= e($maxDia->format('Y-m-d')) ?>">
+                <button type="submit" class="botao">Ver</button>
+            </form>
+            <?php if ($seguinte <= $maxDia): ?>
+                <a class="botao botao-secundario" href="alterar-consulta.php?id=<?= $consultaId ?>&data=<?= e($seguinte->format('Y-m-d')) ?>">Dia seguinte →</a>
+            <?php endif; ?>
+        </div>
+
+        <ul class="legenda" aria-label="Legenda">
+            <?php foreach ($rotulos as $estado => [$simbolo, $texto]): ?>
+                <li class="bloco bloco-<?= e($estado) ?>"><?= e($simbolo . ' ' . $texto) ?></li>
             <?php endforeach; ?>
         </ul>
-    <?php endif; ?>
-</section>
 
-<?php if ($opcoes): ?>
-<section class="cartao seccao">
-    <h2>Pedir alteração para <?= e(data_extenso($dia)) ?></h2>
-    <p class="ajuda">
-        A alteração fica pendente até a clínica aprovar. Se o horário pretendido já estiver ocupado no momento da aprovação, será proposto outro.
-    </p>
-
-    <form method="post" action="alterar-consulta.php?id=<?= $consultaId ?>" novalidate>
-        <?= csrf_campo() ?>
-        <input type="hidden" name="data" value="<?= e($dia->format('Y-m-d')) ?>">
-
-        <div class="campo">
-            <label for="novo_inicio">Nova hora <span class="obrigatorio" aria-hidden="true">*</span></label>
-            <select id="novo_inicio" name="novo_inicio" required>
-                <option value="">— escolher —</option>
-                <?php foreach ($opcoes as $o): ?>
-                    <option value="<?= e($o['inicio']) ?>" <?= ($_POST['novo_inicio'] ?? '') === $o['inicio'] ? 'selected' : '' ?>>
-                        <?= e($o['texto']) ?>
-                    </option>
+        <?php if (!$slots): ?>
+            <div class="alerta alerta-info">A clínica está fechada neste dia.</div>
+        <?php else: ?>
+            <?php
+            $contagemSlots = array_count_values(array_column($slots, 'estado'));
+            $livres = (int)($contagemSlots['livre'] ?? 0);
+            $ocupados = (int)($contagemSlots['ocupado'] ?? 0);
+            $reservados = (int)($contagemSlots['reservado_outro'] ?? 0);
+            ?>
+            <div class="agenda-titulo">
+                <div>
+                    <h2>Disponibilidade do dia</h2>
+                    <p class="ajuda">Cada bloco representa <?= (int)$blocoAgendaMin ?> minutos da agenda.</p>
+                </div>
+            </div>
+            <div class="agenda-resumo" aria-label="Resumo dos blocos de agenda">
+                <span><strong><?= $livres ?></strong> livres</span>
+                <span><strong><?= $ocupados ?></strong> ocupados</span>
+                <span><strong><?= $reservados ?></strong> reservados</span>
+            </div>
+            <ul class="calendario" aria-label="Disponibilidade de <?= e(data_extenso($dia)) ?>">
+                <?php foreach ($slots as $s): [$simbolo, $texto] = $rotulos[$s['estado']]; ?>
+                    <li class="bloco bloco-<?= e($s['estado']) ?>">
+                        <strong><?= e($s['hora']) ?></strong>
+                        <span><?= e($simbolo . ' ' . $texto) ?></span>
+                    </li>
                 <?php endforeach; ?>
-            </select>
-        </div>
+            </ul>
+        <?php endif; ?>
+    </section>
 
-        <div class="campo">
-            <label for="motivo">Motivo (opcional)</label>
-            <input type="text" id="motivo" name="motivo" maxlength="255" value="<?= e($motivoForm) ?>">
-        </div>
+    <?php if ($opcoes): ?>
+        <section class="cartao seccao">
+            <h2>Pedir alteração para <?= e(data_extenso($dia)) ?></h2>
+            <p class="ajuda">
+                A alteração fica pendente até a clínica aprovar. Se o horário pretendido já estiver ocupado no momento da aprovação, será proposto outro.
+            </p>
 
-        <button type="submit" class="botao">Enviar pedido de alteração</button>
-        <a class="botao botao-secundario" href="minhas-marcacoes.php">Cancelar</a>
-    </form>
-</section>
-<?php elseif ($slots): ?>
-    <div class="alerta alerta-info">
-        Não há horas livres neste dia para uma consulta de <?= e(formatar_duracao($duracaoMin)) ?>.
-        Escolhe outro dia na navegação acima.
-    </div>
-<?php endif; ?>
+            <form method="post" action="alterar-consulta.php?id=<?= $consultaId ?>" novalidate>
+                <?= csrf_campo() ?>
+                <input type="hidden" name="data" value="<?= e($dia->format('Y-m-d')) ?>">
+
+                <fieldset class="horario-pessoa">
+                    <legend>Escolhe a nova hora</legend>
+                    <p class="horario-pessoa-ajuda">
+                        Consulta de <?= e(formatar_duracao($duracaoMin)) ?>. Cada opção mostra a hora de início e de fim.
+                    </p>
+                    <?php
+                    $opcoesPorPeriodo = ['Manhã' => [], 'Tarde' => [], 'Final do dia' => []];
+                    foreach ($opcoes as $opcao) {
+                        $horaOpcao = (int)substr($opcao['inicio'], 11, 2);
+                        $periodo = $horaOpcao < 12 ? 'Manhã' : ($horaOpcao < 18 ? 'Tarde' : 'Final do dia');
+                        $opcoesPorPeriodo[$periodo][] = $opcao;
+                    }
+                    ?>
+                    <?php foreach ($opcoesPorPeriodo as $nomePeriodo => $opcoesPeriodo): ?>
+                        <?php if ($opcoesPeriodo): ?>
+                            <div class="horario-grupo">
+                                <h3><?= e($nomePeriodo) ?></h3>
+                                <div class="horario-opcoes">
+                                    <?php foreach ($opcoesPeriodo as $o): ?>
+                                        <label class="horario-opcao">
+                                            <input type="radio" name="novo_inicio" value="<?= e($o['inicio']) ?>"
+                                                <?= ($_POST['novo_inicio'] ?? '') === $o['inicio'] ? 'checked' : '' ?> required>
+                                            <span class="horario-opcao-conteudo">
+                                                <strong><?= e($o['hora']) ?></strong>
+                                                <small>Termina às <?= e($o['fim']) ?></small>
+                                            </span>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </fieldset>
+
+                <div class="campo">
+                    <label for="motivo">Motivo (opcional)</label>
+                    <input type="text" id="motivo" name="motivo" maxlength="255" value="<?= e($motivoForm) ?>">
+                </div>
+
+                <div class="horario-acoes">
+                    <button type="submit" class="botao">Enviar pedido de alteração</button>
+                    <a class="botao botao-secundario" href="minhas-marcacoes.php">Cancelar</a>
+                </div>
+            </form>
+        </section>
+    <?php elseif ($slots): ?>
+        <div class="alerta alerta-info">
+            Não há horas livres neste dia para uma consulta de <?= e(formatar_duracao($duracaoMin)) ?>.
+            Escolhe outro dia na navegação acima.
+        </div>
+    <?php endif; ?>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

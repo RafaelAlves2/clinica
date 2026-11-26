@@ -3,20 +3,17 @@ declare(strict_types=1);
 require __DIR__ . '/../includes/config.php';
 require __DIR__ . '/../includes/gestao.php';
 require __DIR__ . '/../includes/stock.php';
+require __DIR__ . '/../includes/servicos/admin.php';
 
 $u   = exigir_login(['admin', 'rececao']);
 $pdo = db();
 
 $hoje = (new DateTimeImmutable('now'))->format('Y-m-d');
 $total = [
-    'dentistas'     => (int)$pdo->query('SELECT COUNT(*) FROM dentistas WHERE ativo = 1')->fetchColumn(),
-    'tratamentos'   => (int)$pdo->query('SELECT COUNT(*) FROM tratamentos WHERE ativo = 1')->fetchColumn(),
-    'pacientes'     => (int)$pdo->query('SELECT COUNT(*) FROM pacientes WHERE ativo = 1')->fetchColumn(),
-    'mensagens'     => (int)$pdo->query('SELECT COUNT(*) FROM mensagens_contacto WHERE lida = 0')->fetchColumn(),
-    'pedidos'       => (int)$pdo->query("SELECT COUNT(*) FROM pedidos_alteracao WHERE estado = 'pendente'")->fetchColumn(),
-    'avaliacoes'    => (int)$pdo->query("SELECT COUNT(*) FROM avaliacoes WHERE estado = 'pendente'")->fetchColumn(),
-    'stock_alertas' => stock_alertas($pdo),
-    'candidaturas'  => (int)$pdo->query("SELECT COUNT(*) FROM candidaturas WHERE estado = 'nova'")->fetchColumn(),
+    'dentistas'    => (int)$pdo->query('SELECT COUNT(*) FROM dentistas WHERE ativo = 1')->fetchColumn(),
+    'tratamentos'  => (int)$pdo->query('SELECT COUNT(*) FROM tratamentos WHERE ativo = 1')->fetchColumn(),
+    'pacientes'    => (int)$pdo->query('SELECT COUNT(*) FROM pacientes WHERE ativo = 1')->fetchColumn(),
+    'candidaturas' => (int)$pdo->query("SELECT COUNT(*) FROM candidaturas WHERE estado = 'nova'")->fetchColumn(),
 ];
 $indicadores = [];
 try {
@@ -27,109 +24,144 @@ try {
     $st = $pdo->query("SELECT COUNT(*) FROM lista_espera WHERE estado='ativa'"); $indicadores['lista_espera'] = (int)$st->fetchColumn();
 } catch (Throwable $e) { $indicadores = []; }
 
+$pendencias = pendencias_admin($pdo, $u);
+$totalPendencias = 0;
+foreach ($pendencias as $pendencia) {
+    $totalPendencias += (int)$pendencia['valor'];
+}
+
 $tituloPagina = 'Administração';
+$css_extra = ['css/dashboard.css'];
 require __DIR__ . '/../includes/cabecalho.php';
-echo estilos_gestao();
 ?>
 
-<style>
-/* Botões de atalho do painel — grelha flexível, sem sobreposição */
-.acoes-admin {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--esp-2);
-    margin: 0 0 var(--esp-4);
-}
-.acoes-admin .botao {
-    margin: 0;
-    white-space: nowrap;
-}
-</style>
+<div class="dash-root adm-root">
 
-<h1>Painel de administração</h1>
-<p>Olá, <?= e($u['nome']) ?> (<?= e($u['papel']) ?>).</p>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Administração</span>
+            <h1>Painel de gestão da clínica</h1>
+            <p>
+                Aqui controlas o funcionamento diário da clínica: a equipa e os horários,
+                a comunicação com os pacientes, as marcações, os pagamentos e os recursos
+                materiais. Escolhe uma área para começar.
+            </p>
+        </div>
+        <div class="dash-avatar" aria-hidden="true">
+            <?= e(iniciais($u['nome'])) ?>
+        </div>
+    </div>
 
-<div class="grelha seccao">
-    <div class="cartao texto-centro"><p class="numero"><?= $total['dentistas'] ?></p><p class="ajuda">Dentistas ativos</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= $total['tratamentos'] ?></p><p class="ajuda">Tratamentos ativos</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= $total['pacientes'] ?></p><p class="ajuda">Pacientes</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= $total['mensagens'] ?></p><p class="ajuda">Mensagens por ler</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= $total['pedidos'] ?></p><p class="ajuda">Pedidos de alteração</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= $total['avaliacoes'] ?></p><p class="ajuda">Avaliações por moderar</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= $total['stock_alertas'] ?></p><p class="ajuda">Alertas de stock</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= $total['candidaturas'] ?></p><p class="ajuda">Candidaturas novas</p></div>
-</div>
-<?php if ($indicadores): ?>
-<div class="grelha seccao">
-    <div class="cartao texto-centro"><p class="numero"><?= (int)($indicadores['consultas_hoje'] ?? 0) ?></p><p class="ajuda">Consultas hoje (não canceladas)</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= (int)($indicadores['canceladas_hoje'] ?? 0) ?></p><p class="ajuda">Canceladas hoje</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= (int)($indicadores['lista_espera'] ?? 0) ?></p><p class="ajuda">Lista de espera ativa</p></div>
-</div>
-<?php endif; ?>
+    <?php if ($totalPendencias > 0): ?>
+        <section class="adm-pending" aria-labelledby="adm-pendencias-titulo">
+            <div class="adm-pending-head">
+                <div>
+                    <span class="dash-kicker">Ações pendentes</span>
+                    <h2 id="adm-pendencias-titulo">
+                        <?= $totalPendencias === 1
+                            ? '1 item precisa de atenção'
+                            : $totalPendencias . ' itens precisam de atenção' ?>
+                    </h2>
+                    <p class="ajuda">
+                        Este é o mesmo total que aparece junto a “Administração” no menu.
+                        Cada número tem uma ligação direta para o local onde pode ser tratado.
+                    </p>
+                </div>
+                <span class="adm-pending-total" aria-hidden="true"><?= $totalPendencias ?></span>
+            </div>
 
-<section class="seccao">
-    <h2>Gestão clínica</h2>
-    <?php if ($u['papel'] === 'admin'): ?>
-        <div class="acoes-admin">
-            <a class="botao" href="admin/dentistas.php">Gerir dentistas</a>
-            <a class="botao" href="admin/horarios.php">Horários</a>
-            <a class="botao" href="admin/bloqueios.php">Bloqueios (férias, folgas)</a>
-            <a class="botao" href="admin/especialidades.php">Especialidades</a>
-            <a class="botao" href="admin/tratamentos.php">Tratamentos</a>
+            <div class="adm-pending-grid">
+                <?php foreach ($pendencias as $pendencia): $valor = (int)$pendencia['valor']; ?>
+                    <a class="adm-pending-item<?= $valor === 0 ? ' is-zero' : '' ?>"
+                       href="<?= e($pendencia['url']) ?>">
+                        <span><?= e($pendencia['rotulo']) ?></span>
+                        <strong><?= $valor ?></strong>
+                        <small><?= $valor === 0 ? 'Sem pendências' : 'Abrir e tratar' ?></small>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </section>
+    <?php else: ?>
+        <div class="adm-clear" role="status">
+            <span class="adm-clear-icon" aria-hidden="true"><?= admin_icone('check', 20) ?></span>
+            <div>
+                <strong>Sem pendências.</strong>
+                <?= $u['papel'] === 'admin'
+                    ? 'Não há mensagens, pedidos, avaliações ou alertas de stock por tratar.'
+                    : 'Não há mensagens de contacto nem pedidos de alteração por tratar.' ?>
+            </div>
         </div>
     <?php endif; ?>
-</section>
 
-<section class="seccao">
-    <h2>Comunicação</h2>
-    <div class="acoes-admin">
-        <a class="botao" href="admin/contactos.php">Mensagens de contacto</a>
-        <a class="botao" href="admin/artigos.php">Artigos (informação ao paciente)</a>
-        <a class="botao" href="admin/perguntas-frequentes.php">Perguntas frequentes</a>
-        <a class="botao" href="admin/galeria.php">Galeria</a>
-        <a class="botao" href="admin/hero.php">Imagens do hero (início)</a>
-        <a class="botao" href="admin/testemunhos.php">Testemunhos</a>
-        <a class="botao" href="admin/parceiros.php">Marcas parceiras</a>
-        <a class="botao" href="admin/avaliacoes.php">Avaliações</a>
-        <a class="botao" href="admin/candidaturas.php">Candidaturas</a>
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Áreas de gestão</span>
+            <h2>O que queres <span>gerir</span>?</h2>
+        </div>
     </div>
-</section>
 
-<section class="seccao">
-    <h2>Marcações e pagamentos</h2>
-    <div class="acoes-admin">
-        <a class="botao" href="admin/marcacoes.php">Agenda e marcações</a>
-        <a class="botao" href="admin/lista-espera.php">Lista de espera</a>
-        <a class="botao" href="admin/pedidos.php">Pedidos de alteração</a>
-        <a class="botao" href="admin/pagamentos.php">Pagamentos</a>
-        <a class="botao" href="admin/financeiro.php">Relatório financeiro</a>
-        <a class="botao" href="admin/seguradoras-planos.php">Seguradoras e planos</a>
-        <a class="botao" href="admin/beneficios.php">Benefícios e seguros</a>
-        <a class="botao" href="admin/relatorios.php">Relatórios</a>
+    <div class="adm-section-grid">
+        <?= admin_seccoes_html($u) ?>
     </div>
-</section>
 
-<?php if ($u['papel'] === 'admin'): ?>
-<section class="seccao">
-    <h2>Recursos e materiais</h2>
-    <div class="acoes-admin">
-        <a class="botao" href="admin/stock.php">Stock de materiais</a>
-        <a class="botao" href="admin/stock-encomendas.php">Encomendas</a>
-        <a class="botao" href="admin/stock-categorias.php">Categorias de stock</a>
-        <a class="botao" href="admin/stock-movimentos.php">Movimentos de stock</a>
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Hoje</span>
+            <h2>Resumo <span>rápido</span></h2>
+        </div>
+        <a href="admin/relatorios.php">Ver relatórios</a>
     </div>
-</section>
 
-<section class="seccao">
-    <h2>Administração do sistema</h2>
-    <div class="acoes-admin">
-        <a class="botao" href="admin/utilizadores.php">Utilizadores e permissões</a>
-        <a class="botao" href="admin/utilizadores-novo.php">Novo utilizador</a>
-        <a class="botao" href="admin/configuracoes.php">Configurações</a>
-        <a class="botao" href="admin/editor-site.php">Editor do site</a>
-        <?php if ($u['papel'] === 'admin'): ?><a class="botao" href="admin/auditoria.php">Auditoria / rastreabilidade</a><?php endif; ?>
+    <div class="dash-stat-grid">
+        <a href="admin/marcacoes.php">
+            <span>Consultas hoje</span>
+            <strong><?= (int)($indicadores['consultas_hoje'] ?? 0) ?></strong>
+            <small>Não canceladas</small>
+        </a>
+        <a href="admin/marcacoes.php">
+            <span>Canceladas hoje</span>
+            <strong><?= (int)($indicadores['canceladas_hoje'] ?? 0) ?></strong>
+            <small>Ver agenda</small>
+        </a>
+        <a href="admin/lista-espera.php">
+            <span>Lista de espera</span>
+            <strong><?= (int)($indicadores['lista_espera'] ?? 0) ?></strong>
+            <small>Pedidos ativos</small>
+        </a>
+        <a href="admin/relatorios.php">
+            <span>Pacientes ativos</span>
+            <strong><?= $total['pacientes'] ?></strong>
+            <small>Ver relatórios</small>
+        </a>
     </div>
-</section>
-<?php endif; ?>
+
+    <?php if ($u['papel'] === 'admin'): ?>
+        <div class="dash-section-title">
+            <div>
+                <span class="dash-kicker">Visão geral</span>
+                <h2>Estado da <span>clínica</span></h2>
+            </div>
+        </div>
+
+        <div class="adm-info-grid">
+            <a class="adm-info-card" href="admin/dentistas.php">
+                <span>Dentistas ativos</span>
+                <strong><?= $total['dentistas'] ?></strong>
+                <small>Equipa clínica</small>
+            </a>
+            <a class="adm-info-card" href="admin/tratamentos.php">
+                <span>Tratamentos ativos</span>
+                <strong><?= $total['tratamentos'] ?></strong>
+                <small>Catálogo clínico</small>
+            </a>
+            <a class="adm-info-card" href="admin/candidaturas.php">
+                <span>Candidaturas novas</span>
+                <strong><?= $total['candidaturas'] ?></strong>
+                <small>Recrutamento</small>
+            </a>
+        </div>
+    <?php endif; ?>
+
+</div>
 
 <?php require __DIR__ . '/../includes/rodape.php'; ?>

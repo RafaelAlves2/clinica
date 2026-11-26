@@ -17,12 +17,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip       = ip_cliente();
     $pdo      = db();
 
-    // BUGFIX 2: truncar o email ANTES das COUNT queries.
-    // O INSERT já truncava para 190, mas os COUNT usavam o email inteiro,
-    // permitindo bypass do rate limit por email com emails >190 chars.
     $emailChave = mb_substr($email, 0, 190);
 
-    // --- 1. Está bloqueado por tentativas a mais? (configurável na BD)
     $maxEmail = max(1, (int)config_valor($pdo, 'max_tentativas_login', (int)MAX_TENTATIVAS_EMAIL));
     $maxIp    = max(1, (int)config_valor($pdo, 'max_tentativas_ip', (int)MAX_TENTATIVAS_IP));
     $bloqMin  = max(1, (int)config_valor($pdo, 'bloqueio_login_min', (int)BLOQUEIO_MINUTOS));
@@ -46,7 +42,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($falhasEmail >= $maxEmail || $falhasIp >= $maxIp) {
         $erro = 'Demasiadas tentativas falhadas. Tenta novamente mais tarde.';
     } else {
-        // --- 2. Procurar o utilizador e verificar a password ---
         $stmt = $pdo->prepare(
             'SELECT id, nome_completo, papel, tema, password_hash, ativo
              FROM utilizadores WHERE email = ?'
@@ -79,11 +74,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([(int)$u['id']]);
             }
 
-            // --- 3. Sucesso ---
             session_regenerate_id(true);
             unset($_SESSION['csrf']);
 
-            // BUGFIX 1: incluir 'nome_completo' para consistência com exigir_login().
             $_SESSION['utilizador'] = [
                 'id'            => (int)$u['id'],
                 'nome'          => $u['nome_completo'],
@@ -104,7 +97,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare('INSERT INTO tentativas_login (email, ip, sucesso) VALUES (?, ?, 1)')
                 ->execute([$emailChave, $ip]);
 
-            // Volta à página que o visitante tentou abrir antes do login.
             $destino = consumir_destino_apos_login();
             if ($destino !== null) {
                 redirecionar($destino);
@@ -129,32 +121,49 @@ $tituloPagina = 'Iniciar sessão';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<section class="cartao cartao-estreito">
-    <h1>Iniciar sessão</h1>
+<div class="auth-page">
+    <div class="auth-side-form">
+        <h1>Iniciar sessão</h1>
+        <p class="auth-subtitle">Entra na tua conta para gerir marcações, pagamentos e dados clínicos.</p>
 
-    <?php if ($erro !== ''): ?>
-        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-    <?php endif; ?>
+        <?php if ($erro !== ''): ?>
+            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+        <?php endif; ?>
 
-    <form method="post" action="login.php" novalidate>
-        <?= csrf_campo() ?>
+        <form method="post" action="login.php" novalidate>
+            <?= csrf_campo() ?>
 
-        <div class="campo">
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" required maxlength="190"
-                   autocomplete="email" value="<?= e($email) ?>">
+            <div class="campo">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required maxlength="190"
+                       autocomplete="email" value="<?= e($email) ?>">
+            </div>
+
+            <div class="campo">
+                <label for="password">Palavra-passe</label>
+                <input type="password" id="password" name="password" required maxlength="72"
+                       autocomplete="current-password">
+            </div>
+
+            <button type="submit" class="botao botao-grande">Entrar</button>
+        </form>
+
+        <div class="auth-links">
+            <a href="registo.php">Criar conta</a>
+            <a href="recuperar-password.php">Esqueceste a palavra-passe?</a>
         </div>
+    </div>
 
-        <div class="campo">
-            <label for="password">Palavra-passe</label>
-            <input type="password" id="password" name="password" required maxlength="72"
-                   autocomplete="current-password">
-        </div>
-
-        <button type="submit" class="botao botao-grande">Entrar</button>
-    </form>
-
-    <p class="texto-centro">Ainda não tens conta? <a href="registo.php">Criar conta</a></p>
-</section>
+    <aside class="auth-side-art" aria-hidden="true">
+        <span class="auth-art-kicker">Área do paciente</span>
+        <h2 class="auth-art-title">O teu sorriso,<br><em>sempre contigo.</em></h2>
+        <ul class="auth-art-list">
+            <li>Marcações e histórico clínico num só lugar</li>
+            <li>Pagamentos online seguros</li>
+            <li>Gestão de familiares e seguros</li>
+        </ul>
+        <span class="auth-art-footer"><?= e(defined('CLINICA_NOME') ? CLINICA_NOME : '') ?></span>
+    </aside>
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

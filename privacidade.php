@@ -7,9 +7,27 @@ $tituloPagina = conteudo('privacidade_titulo', 'Política de Privacidade');
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('privacidade_titulo', 'Política de Privacidade')) ?></h1>
-<?php $__ci=trim(conteudo('privacidade_intro','')); if($__ci!==''): ?><p><?= nl2br(e($__ci)) ?></p><?php endif; ?>
-<p class="ajuda">Em conformidade com o Regulamento (UE) 2016/679 (RGPD) e a Lei n.º 58/2019.</p>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">Legal</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>RGPD · Lei 58/2019</span>
+        </div>
+        <span class="interior-hero-aside">Última atualização: 2026</span>
+    </div>
+    <h1><?= e(conteudo('privacidade_titulo', 'Política de Privacidade')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Em conformidade com o Regulamento (UE) 2016/679 (RGPD) e a Lei n.º 58/2019.
+        </p>
+        <span>Lê com atenção ↓</span>
+    </div>
+</section>
+
+<?php $__ci = trim(conteudo('privacidade_intro', '')); if ($__ci !== ''): ?>
+    <p><?= nl2br(e($__ci)) ?></p>
+<?php endif; ?>
 
 <section class="cartao seccao">
     <h2>1. Responsável pelo tratamento</h2>
@@ -70,6 +88,17 @@ require __DIR__ . '/includes/cabecalho.php';
         pagamento, prestadores de serviços informáticos (alojamento, email), e
         autoridades públicas quando legalmente exigido. Não são transferidos
         para fora do Espaço Económico Europeu sem garantias adequadas.
+    </p>
+    <p>
+        Se o titular optar por guardar um cartão na área pessoal, os dados do cartão
+        são recolhidos e conservados pela Stripe para permitir a sua apresentação
+        em pagamentos futuros iniciados pelo próprio titular. A clínica conserva
+        apenas os identificadores do cliente e do método de pagamento na Stripe e
+        o registo do consentimento. O número completo do cartão e o CVC não são
+        recebidos nem guardados pela clínica. O cartão guardado só é apresentado
+        quando o titular tem sessão iniciada e cada pagamento exige confirmação
+        expressa. O consentimento pode ser retirado na área «Cartões», removendo
+        o cartão guardado.
     </p>
 </section>
 

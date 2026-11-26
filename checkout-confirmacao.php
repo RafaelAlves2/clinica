@@ -9,10 +9,10 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 header('X-Robots-Tag: noindex, nofollow');
 
-$u   = exigir_login();
+$u = exigir_login();
 $pdo = db();
 
-$ref  = trim((string)($_GET['ref'] ?? ''));
+$ref = trim((string)($_GET['ref'] ?? ''));
 $piId = trim((string)($_GET['payment_intent'] ?? ''));
 $erroPagina = '';
 $marcacao = null;
@@ -21,10 +21,11 @@ $pagamento = null;
 $cartao = ['marca' => '', 'ultimos4' => ''];
 $estado = '';
 $vista = 'pendente';
+$pagamentoParcial = false;
 
 try {
     $marcacao = checkout_carregar_marcacao($pdo, $ref, (int)$u['id']);
-    $resumo   = checkout_resumo($pdo, $marcacao);
+    $resumo = checkout_resumo($pdo, $marcacao);
     $pagamento = checkout_pagamento_confirmacao($pdo, (int)$marcacao['id'], $piId);
 
     if ($pagamento) {
@@ -39,15 +40,20 @@ try {
         }
     }
 
+    $pagamentoParcial = $estado === 'pago'
+        && $pagamento !== null
+        && (string)($pagamento['metodo'] ?? '') === 'sinal'
+        && (float)$resumo['valor'] > 0.0001;
+
     if ($estado === 'pago' || ($resumo['pago'] > 0.0001 && $resumo['valor'] <= 0.0001)) {
         $vista = 'pago';
     } elseif (in_array($estado, ['falhado', 'recusado', 'cancelado'], true)) {
         $vista = 'falhado';
+    } elseif (in_array($estado, ['reembolsado', 'parcialmente_reembolsado'], true)) {
+        $vista = 'reembolsado';
     } elseif (in_array($estado, ['pendente', 'em_processamento', 'parcialmente_pago'], true)) {
         $vista = 'pendente';
     } elseif ($pagamento === null) {
-        $vista = 'pendente';
-    } else {
         $vista = 'pendente';
     }
 } catch (RuntimeException $e) {
@@ -60,12 +66,10 @@ try {
 }
 
 $modoTeste = str_starts_with(gateway_stripe_publishable_key($pdo), 'pk_test_');
-$host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
-$host = preg_replace('/[^A-Za-z0-9.\-:\[\]]/', '', $host) ?: 'localhost';
-
 $tituloPagina = match ($vista) {
-    'pago' => 'Pagamento confirmado',
+    'pago' => $pagamentoParcial ? 'Sinal confirmado' : 'Pagamento confirmado',
     'falhado' => 'Pagamento não concluído',
+    'reembolsado' => 'Pagamento reembolsado',
     default => 'A confirmar pagamento',
 };
 if ($erroPagina !== '') { $tituloPagina = 'Confirmação indisponível'; }
@@ -88,131 +92,128 @@ $marcaBadge = match ($marcaCurta) {
 };
 $pagamentoReferencia = $pagamento ? trim((string)($pagamento['referencia_transacao'] ?? '')) : '';
 $paymentIntentId = $pagamentoReferencia !== '' && str_starts_with($pagamentoReferencia, 'pi_') ? $pagamentoReferencia : $piId;
-$podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
+$podeRepetir = in_array($vista, ['falhado', 'reembolsado'], true) && !empty($resumo['pode_pagar']);
+$tipoRetry = $vista !== 'reembolsado' && $pagamento && (string)($pagamento['metodo'] ?? '') === 'sinal' ? '&tipo=sinal' : '';
+$valorReembolsado = (float)($pagamento['valor_reembolsado'] ?? 0);
+
+$css_extra = $css_extra ?? [];
+$css_extra[] = 'css/checkout.css';
+require __DIR__ . '/includes/cabecalho.php';
 ?>
-<!DOCTYPE html>
-<html lang="pt-PT">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
-    <title><?= e($tituloPagina) ?> | Clínica Dentária</title>
-    <link rel="stylesheet" href="<?= e(BASE_URL) ?>css/checkout.css?v=<?= (int)@filemtime(__DIR__ . '/css/checkout.css') ?>">
-</head>
-<body>
-<main class="checkout-frame">
-    <div class="checkout-top">
-        <div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div>
-        <div class="address"><span class="lock" aria-hidden="true">&#128274;</span> <?= e($host) ?></div>
-        <span class="domain"><?= $modoTeste ? 'Modo de teste' : 'Pagamento seguro' ?></span>
-    </div>
+
+<section class="checkout-page confirmacao-checkout" aria-labelledby="confirmacao-titulo">
+    <header class="checkout-intro">
+        <p class="checkout-kicker">Área pessoal · Pagamentos</p>
+        <h1 id="confirmacao-titulo"><?= e($tituloPagina) ?></h1>
+        <p>Consulta o estado atualizado do pagamento da tua marcação.</p>
+    </header>
 
     <?php if ($erroPagina !== ''): ?>
-        <div class="checkout-page-error" role="alert">
-            <h1>Não foi possível mostrar a confirmação</h1>
+        <section class="cartao checkout-erro-pagina" role="alert">
+            <div class="checkout-status-icon" aria-hidden="true">!</div>
+            <h2>Não foi possível mostrar a confirmação</h2>
             <p><?= e($erroPagina) ?></p>
-            <p><a href="area-pessoal.php">Voltar à área pessoal</a></p>
-        </div>
+            <a class="botao" href="area-pessoal.php">Voltar à minha área</a>
+        </section>
     <?php else: ?>
         <div class="checkout-layout">
-            <section class="product-side" aria-label="Resumo do pagamento">
-                <div class="restricted-row">
-                    <span class="store-icon" aria-hidden="true">&#9670;</span>
-                    <span class="restricted-badge">Área restrita</span>
+            <section class="cartao confirmacao-resumo" aria-labelledby="confirmacao-resumo-titulo">
+                <p class="checkout-kicker">Resumo</p>
+                <h2 id="confirmacao-resumo-titulo"><?= e((string)$resumo['produto']) ?></h2>
+                <div class="checkout-total">
+                    <span><?= $pagamentoParcial ? 'Sinal pago' : ($vista === 'reembolsado' ? 'Valor reembolsado' : 'Valor do movimento') ?></span>
+                    <strong><?= e(formatar_preco($vista === 'reembolsado' ? $valorReembolsado : $valorMostrado)) ?></strong>
                 </div>
-                <div class="product-info">
-                    <span class="product-label">Clínica Dentária</span>
-                    <h1><?= e((string)$resumo['produto']) ?></h1>
-                    <div class="product-price"><?= e(formatar_preco($valorMostrado)) ?></div>
-                </div>
-                <div class="product-meta">
-                    <div><strong>Referência:</strong> <?= e((string)$marcacao['referencia']) ?></div>
+                <dl class="checkout-dados">
+                    <div><dt>Referência</dt><dd><?= e((string)$marcacao['referencia']) ?></dd></div>
+                    <div><dt>Contacto</dt><dd><?= e($email !== '' ? $email : '—') ?></dd></div>
                     <?php if (!empty($resumo['pacientes'])): ?>
-                        <div class="product-patients"><strong>Paciente<?= count($resumo['pacientes']) > 1 ? 's' : '' ?>:</strong> <?= e(implode(', ', $resumo['pacientes'])) ?></div>
+                        <div><dt>Paciente<?= count($resumo['pacientes']) > 1 ? 's' : '' ?></dt><dd><?= e(implode(', ', $resumo['pacientes'])) ?></dd></div>
                     <?php endif; ?>
                     <?php $primeira = $resumo['consultas'][0] ?? null; if ($primeira && !empty($primeira['inicio'])): $dt = new DateTime((string)$primeira['inicio']); ?>
-                        <div class="product-ref"><strong>Consulta:</strong> <?= e($dt->format('d/m/Y H:i')) ?></div>
+                        <div><dt>Consulta</dt><dd><?= e($dt->format('d/m/Y · H:i')) ?></dd></div>
                     <?php endif; ?>
                     <?php if ($pagamentoReferencia !== ''): ?>
-                        <div class="product-ref"><strong>Pagamento:</strong> <span class="mono"><?= e($pagamentoReferencia) ?></span></div>
+                        <div><dt>Referência Stripe</dt><dd><?= e($pagamentoReferencia) ?></dd></div>
                     <?php endif; ?>
-                </div>
+                </dl>
                 <?php if ($modoTeste): ?>
-                    <div class="test-badge"><span class="test-dot" aria-hidden="true"></span> Ambiente de teste — não uses um cartão real</div>
+                    <div class="checkout-test-note"><span aria-hidden="true">●</span> Ambiente de testes. Não uses um cartão real.</div>
                 <?php endif; ?>
             </section>
 
-            <section class="confirmation-side" aria-label="Estado do pagamento">
+            <section class="cartao confirmacao-estado" aria-label="Estado do pagamento">
                 <?php if ($vista === 'pago'): ?>
-                    <div class="success-check" aria-hidden="true">&#10003;</div>
-                    <h2>Obrigado pelo seu pedido</h2>
+                    <div class="confirmacao-icone" aria-hidden="true">✓</div>
+                    <h2><?= $pagamentoParcial ? 'Sinal confirmado' : 'Pagamento confirmado' ?></h2>
                 <?php elseif ($vista === 'falhado'): ?>
-                    <div class="success-check failed" aria-hidden="true">&#10005;</div>
+                    <div class="confirmacao-icone falhado" aria-hidden="true">×</div>
                     <h2>O pagamento não foi concluído</h2>
+                <?php elseif ($vista === 'reembolsado'): ?>
+                    <div class="confirmacao-icone falhado" aria-hidden="true">↶</div>
+                    <h2><?= $estado === 'reembolsado' ? 'Pagamento reembolsado' : 'Reembolso parcial registado' ?></h2>
                 <?php else: ?>
-                    <div class="success-check pending" aria-hidden="true">&#8987;</div>
+                    <div class="confirmacao-icone pendente" aria-hidden="true">…</div>
                     <h2>A confirmar o pagamento</h2>
                 <?php endif; ?>
 
-                <div class="confirmation-box">
-                    <span class="confirmation-label">Dados de contacto</span>
-                    <p><?= e($email !== '' ? $email : '—') ?></p>
-
-                    <span class="confirmation-label method-label">Forma de pagamento</span>
-                    <?php if ($vista === 'pago'): ?>
-                        <div class="paid-method">
-                            <span class="visa-small"><?= e($marcaBadge) ?></span>
-                            <strong><?= e($metodoCartao) ?></strong>
-                            <span class="paid-amount"><?= e(formatar_preco($valorMostrado)) ?></span>
-                        </div>
-                    <?php elseif ($vista === 'falhado'): ?>
-                        <div class="paid-method">
-                            <span class="visa-small"><?= e($marcaBadge) ?></span>
-                            <strong>Não cobrado</strong>
-                            <span class="paid-amount"><?= e(formatar_preco($valorMostrado)) ?></span>
-                        </div>
-                    <?php else: ?>
-                        <div class="paid-method">
-                            <span class="visa-small"><?= e($marcaBadge) ?></span>
-                            <strong id="estado-texto">A aguardar confirmação da Stripe</strong>
-                            <span class="paid-amount"><?= e(formatar_preco($valorMostrado)) ?></span>
-                        </div>
+                <div class="confirmacao-detalhe">
+                    <div><span>Método</span><strong><?= e($pagamento ? pagamento_metodo_legivel((string)$pagamento['metodo']) : 'Cartão') ?></strong></div>
+                    <?php if ($vista === 'pago' && ($cartao['marca'] ?? '') !== ''): ?>
+                        <div><span>Cartão</span><strong><?= e($metodoCartao) ?></strong></div>
+                    <?php endif; ?>
+                    <div><span>Estado</span><strong><?= e($pagamento ? pagamento_estado_legivel($estado) : 'Pendente') ?></strong></div>
+                    <?php if ($vista === 'reembolsado'): ?>
+                        <div><span>Reembolsado</span><strong><?= e(formatar_preco($valorReembolsado)) ?></strong></div>
                     <?php endif; ?>
                 </div>
 
                 <?php if ($vista === 'pago'): ?>
-                    <p class="confirmation-note">
-                        O pagamento foi confirmado. A clínica recebeu a atualização automaticamente.
-                        Podes consultar os detalhes na <a href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">tua marcação</a>.
+                    <p class="confirmacao-nota">
+                        <?php if ($pagamentoParcial): ?>
+                            O sinal de <?= e(formatar_preco($valorMostrado)) ?> foi confirmado. Falta pagar <?= e(formatar_preco($resumo['valor'])) ?>, que podes liquidar na clínica.
+                        <?php else: ?>
+                            O pagamento foi confirmado pela Stripe. Podes consultar os detalhes na tua marcação.
+                        <?php endif; ?>
                     </p>
+                    <div class="confirmacao-acoes">
+                        <a class="botao" href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Ver marcação</a>
+                        <a class="botao botao-secundario" href="area-pessoal.php">A minha área</a>
+                    </div>
                 <?php elseif ($vista === 'falhado'): ?>
-                    <p class="confirmation-note">
-                        Não foi efetuada qualquer cobrança.<?= $podeRepetir ? ' Podes tentar novamente com outro cartão.' : '' ?>
-                    </p>
-                    <p>
+                    <p class="confirmacao-nota">Não foi concluída qualquer cobrança.<?= $podeRepetir ? ' Podes tentar novamente com outro cartão.' : '' ?></p>
+                    <div class="confirmacao-acoes">
                         <?php if ($podeRepetir): ?>
-                            <a class="botao botao-secundario" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Tentar novamente</a>
+                            <a class="botao" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?><?= e($tipoRetry) ?>">Tentar novamente</a>
                         <?php endif; ?>
                         <a class="botao botao-secundario" href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Ver marcação</a>
+                    </div>
+                <?php elseif ($vista === 'reembolsado'): ?>
+                    <p class="confirmacao-nota">
+                        <?php if ($estado === 'reembolsado'): ?>
+                            A Stripe confirmou a devolução de <?= e(formatar_preco($valorReembolsado)) ?>. O valor voltou a ficar em dívida na marcação.
+                        <?php else: ?>
+                            Foi confirmado um reembolso parcial de <?= e(formatar_preco($valorReembolsado)) ?>. O saldo em falta é <?= e(formatar_preco($resumo['valor'])) ?>.
+                        <?php endif; ?>
                     </p>
+                    <div class="confirmacao-acoes">
+                        <?php if ($podeRepetir): ?>
+                            <a class="botao" href="checkout.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Pagar valor em falta</a>
+                        <?php endif; ?>
+                        <a class="botao botao-secundario" href="marcar-confirmacao.php?ref=<?= e(urlencode((string)$marcacao['referencia'])) ?>">Ver marcação</a>
+                    </div>
                 <?php else: ?>
-                    <p class="confirmation-note" id="estado-nota">
+                    <p class="confirmacao-nota" id="estado-nota">
                         Estamos a aguardar a confirmação segura da Stripe. Esta página atualiza automaticamente.
-                        Não feches a janela enquanto o pagamento estiver em processamento.
                     </p>
-                    <noscript><p class="confirmation-note">Atualiza esta página dentro de alguns instantes para ver o estado final.</p></noscript>
+                    <p class="ajuda" id="estado-texto">A aguardar confirmação da Stripe…</p>
+                    <noscript><p class="ajuda">Atualiza esta página dentro de alguns instantes para ver o estado final.</p></noscript>
                 <?php endif; ?>
-
-                <div class="stripe-footer confirmation-footer">
-                    <span>Powered by <strong>stripe</strong></span>
-                    <span class="separator" aria-hidden="true"></span>
-                    <a href="termos.php">Termos</a>
-                    <a href="privacidade.php">Privacidade</a>
-                </div>
             </section>
         </div>
     <?php endif; ?>
-</main>
+</section>
+
 <?php if ($erroPagina === '' && $vista === 'pendente'): ?>
     <script
         src="<?= e(BASE_URL) ?>js/checkout-confirmacao.js?v=<?= (int)@filemtime(__DIR__ . '/js/checkout-confirmacao.js') ?>"
@@ -220,5 +221,4 @@ $podeRepetir = $vista === 'falhado' && !empty($resumo['pode_pagar']);
         data-ref="<?= e((string)$marcacao['referencia']) ?>"
         data-payment-intent="<?= e($paymentIntentId) ?>"></script>
 <?php endif; ?>
-</body>
-</html>
+<?php require __DIR__ . '/includes/rodape.php'; ?>

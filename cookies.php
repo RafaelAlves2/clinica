@@ -8,9 +8,27 @@ $tituloPagina = conteudo('cookies_titulo', 'Política de Cookies');
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('cookies_titulo', 'Política de Cookies')) ?></h1>
-<?php $__ci=trim(conteudo('cookies_intro','')); if($__ci!==''): ?><p><?= nl2br(e($__ci)) ?></p><?php endif; ?>
-<p class="ajuda">Em conformidade com o RGPD e com as orientações da CNPD.</p>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">Legal</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>RGPD · CNPD</span>
+        </div>
+        <span class="interior-hero-aside">Cookies essenciais</span>
+    </div>
+    <h1><?= e(conteudo('cookies_titulo', 'Política de Cookies')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Em conformidade com o RGPD e com as orientações da Comissão Nacional de Proteção de Dados (CNPD).
+        </p>
+        <span>O que guardamos ↓</span>
+    </div>
+</section>
+
+<?php $__ci = trim(conteudo('cookies_intro', '')); if ($__ci !== ''): ?>
+    <p><?= nl2br(e($__ci)) ?></p>
+<?php endif; ?>
 
 <section class="cartao seccao">
     <h2>1. O que são cookies?</h2>

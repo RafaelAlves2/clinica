@@ -7,7 +7,6 @@ require __DIR__ . '/includes/conta.php';
 $u   = exigir_login();
 $pdo = db();
 
-// Pacientes autorizados
 $st = $pdo->prepare(
     "SELECT p.id, p.nome_completo, a.relacao
        FROM autorizacoes_paciente a
@@ -19,7 +18,6 @@ $st->execute([$u['id']]);
 $pacientes = $st->fetchAll();
 $idsPacientes = array_map('intval', array_column($pacientes, 'id'));
 
-// Planos disponíveis (agrupados por seguradora)
 $seguradoras = $pdo->query(
     'SELECT s.id, s.nome, s.tipo,
             (SELECT GROUP_CONCAT(pl.id, \':\', pl.nome ORDER BY pl.nome SEPARATOR "|")
@@ -28,7 +26,6 @@ $seguradoras = $pdo->query(
        FROM seguradoras s WHERE s.ativo = 1 ORDER BY s.nome'
 )->fetchAll();
 
-// Lista achatada para o <select>
 $planosLista = [];
 foreach ($seguradoras as $s) {
     if (!$s['planos']) { continue; }
@@ -44,7 +41,6 @@ $form  = [
     'valido_de' => '', 'valido_ate' => '',
 ];
 
-// FIX (menor): helper para evitar crash em '0000-00-00'
 $fmtData = static function (?string $d): string {
     if ($d === null || $d === '' || str_starts_with($d, '0000-00-00')) { return '—'; }
     try { return (new DateTime($d))->format('d/m/Y'); } catch (Throwable $e) { return '—'; }
@@ -82,7 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (mb_strlen($form['beneficiario']) > 60) {
             $erros[] = 'O número de beneficiário é demasiado longo.';
         }
-        // FIX (crítico): tipo de retorno aceita false — antes causava TypeError em datas inválidas
         $dataOk = function (string $d): string|false|null {
             if ($d === '') { return null; }
             $dt = DateTime::createFromFormat('Y-m-d', $d);
@@ -121,8 +116,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($acao === 'apagar') {
         $id = (int)($_POST['id'] ?? 0);
-        // FIX (médio): DELETE atómico com ownership + estado na própria query.
-        // Antes havia janela entre SELECT e DELETE onde o admin podia validar o benefício.
         $st = $pdo->prepare(
             "DELETE bp FROM beneficios_paciente bp
                JOIN autorizacoes_paciente a ON a.paciente_id = bp.paciente_id AND a.utilizador_id = ?
@@ -139,7 +132,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Benefícios registados por este utilizador
 $st = $pdo->prepare(
     "SELECT bp.id, bp.numero_apolice, bp.numero_beneficiario, bp.valido_de, bp.valido_ate,
             bp.estado_validacao, bp.validado_em, bp.notas, bp.criado_em,
@@ -163,65 +155,92 @@ $rotulosEstado = [
     'expirado'     => 'Expirado',
 ];
 
+// Mapear estado para classe dash-pill
+$pillClassePorEstado = [
+    'registado'    => 'dash-pill-planning',
+    'em_validacao' => 'dash-pill-working',
+    'validado'     => 'dash-pill-completed',
+    'rejeitado'    => 'dash-pill-cancelled',
+    'expirado'     => 'dash-pill-cancelled',
+];
+
 $tituloPagina = 'Seguros e benefícios';
 require __DIR__ . '/includes/cabecalho.php';
 echo estilos_conta();
 ?>
 
-<h1>Seguros e benefícios</h1>
-<?= submenu_conta('perfil', nao_lidas($pdo, $u['id'])) ?>
+<div class="dash-root">
 
-<p class="ajuda">
-    Regista os teus seguros de saúde, planos dentários ou descontos da clínica.
-    Os descontos só são aplicados depois de a clínica validar.
-</p>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Seguros e benefícios</span>
+            <h1>Seguros e benefícios</h1>
+            <p>Regista os teus seguros de saúde, planos dentários ou descontos da clínica. Os descontos só são aplicados depois de a clínica validar.</p>
+        </div>
+    </div>
 
-<section class="seccao">
-    <h2>Os meus benefícios</h2>
+    <?= submenu_conta('perfil', nao_lidas($pdo, $u['id'])) ?>
+
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Os meus benefícios</span>
+            <h2>Registos <span>ativos</span></h2>
+        </div>
+    </div>
+
     <?php if (!$meusBeneficios): ?>
-        <div class="alerta alerta-info">Ainda não tens benefícios registados.</div>
+        <div class="dash-empty">
+            <span class="dash-empty-symbol" aria-hidden="true">◇</span>
+            <h3>Ainda não tens benefícios registados</h3>
+            <p>Adiciona o teu seguro ou plano de benefícios para que os descontos sejam aplicados nas próximas marcações.</p>
+        </div>
     <?php else: ?>
-        <div class="grelha grelha-larga">
-        <?php foreach ($meusBeneficios as $b): ?>
-            <article class="cartao linha-consulta">
-                <strong><?= e($b['paciente']) ?></strong>
-                <span><strong><?= e($b['seguradora']) ?></strong> — <?= e($b['plano']) ?></span>
-                <span class="ajuda">
-                    Apólice: <?= e($b['numero_apolice'] ?? '—') ?>
-                    · Beneficiário: <?= e($b['numero_beneficiario'] ?? '—') ?>
-                </span>
-                <span class="ajuda">
-                    Validade: <?= e($fmtData($b['valido_de'])) ?> a <?= e($fmtData($b['valido_ate'])) ?>
-                </span>
-                <span>
-                    Estado:
-                    <span class="estado-etiqueta estado-<?= e($b['estado_validacao']) ?>">
+        <div class="dash-list">
+        <?php foreach ($meusBeneficios as $b):
+            $pillClasse = $pillClassePorEstado[$b['estado_validacao']] ?? 'dash-pill-planning';
+        ?>
+            <div class="dash-list-row">
+                <span class="dash-list-mark" aria-hidden="true">◇</span>
+                <div class="dash-list-copy">
+                    <strong><?= e($b['paciente']) ?> · <?= e($b['seguradora']) ?></strong>
+                    <span><?= e($b['plano']) ?></span>
+                    <small>
+                        Apólice: <?= e($b['numero_apolice'] ?? '—') ?>
+                        · Beneficiário: <?= e($b['numero_beneficiario'] ?? '—') ?>
+                        · Validade: <?= e($fmtData($b['valido_de'])) ?> a <?= e($fmtData($b['valido_ate'])) ?>
+                    </small>
+                    <?php if ($b['validado_em']): ?>
+                        <small>Tratado em <?= e($fmtDataHora($b['validado_em'])) ?></small>
+                    <?php endif; ?>
+                    <?php if ($b['notas']): ?>
+                        <small>Notas da clínica: <?= e($b['notas']) ?></small>
+                    <?php endif; ?>
+                </div>
+                <div class="dash-list-end">
+                    <span class="dash-pill <?= e($pillClasse) ?>">
+                        <span class="dash-pill-dot" aria-hidden="true"></span>
                         <?= e($rotulosEstado[$b['estado_validacao']] ?? $b['estado_validacao']) ?>
                     </span>
-                </span>
-                <?php if ($b['validado_em']): ?>
-                    <span class="ajuda">Tratado em <?= e($fmtDataHora($b['validado_em'])) ?></span>
-                <?php endif; ?>
-                <?php if ($b['notas']): ?>
-                    <span class="ajuda">Notas da clínica: <?= e($b['notas']) ?></span>
-                <?php endif; ?>
-
-                <?php if (in_array($b['estado_validacao'], ['registado', 'rejeitado'], true)): ?>
-                    <form method="post" action="seguros.php" class="form-inline" onsubmit="return confirm('Apagar este benefício?');">
-                        <?= csrf_campo() ?>
-                        <input type="hidden" name="acao" value="apagar">
-                        <input type="hidden" name="id" value="<?= (int)$b['id'] ?>">
-                        <button type="submit" class="botao botao-secundario">Apagar</button>
-                    </form>
-                <?php endif; ?>
-            </article>
+                    <?php if (in_array($b['estado_validacao'], ['registado', 'rejeitado'], true)): ?>
+                        <form method="post" action="seguros.php" class="form-inline" onsubmit="return confirm('Apagar este benefício?');" style="margin:0;">
+                            <?= csrf_campo() ?>
+                            <input type="hidden" name="acao" value="apagar">
+                            <input type="hidden" name="id" value="<?= (int)$b['id'] ?>">
+                            <button type="submit" class="dash-list-action" style="border-color:var(--erro);color:var(--erro);">Apagar</button>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </div>
         <?php endforeach; ?>
         </div>
     <?php endif; ?>
-</section>
 
-<section class="cartao seccao">
-    <h2>Registar novo benefício</h2>
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Registar</span>
+            <h2>Novo <span>benefício</span></h2>
+        </div>
+    </div>
 
     <?php foreach ($erros as $erro): ?>
         <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
@@ -232,58 +251,61 @@ echo estilos_conta();
     <?php elseif (!$planosLista): ?>
         <div class="alerta alerta-info">A clínica ainda não configurou planos de benefício.</div>
     <?php else: ?>
-        <form method="post" action="seguros.php" novalidate>
-            <?= csrf_campo() ?>
-            <input type="hidden" name="acao" value="registar">
+        <section class="cartao">
+            <form method="post" action="seguros.php" novalidate>
+                <?= csrf_campo() ?>
+                <input type="hidden" name="acao" value="registar">
 
-            <div class="campo">
-                <label for="paciente">Para quem <span class="obrigatorio" aria-hidden="true">*</span></label>
-                <select id="paciente" name="paciente" required>
-                    <option value="0">— escolher —</option>
-                    <?php foreach ($pacientes as $p): ?>
-                        <option value="<?= (int)$p['id'] ?>" <?= $form['paciente'] === (int)$p['id'] ? 'selected' : '' ?>>
-                            <?= e($p['nome_completo']) ?>
-                            <?= $p['relacao'] === 'proprio' ? '(tu)' : '' ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+                <div class="campo">
+                    <label for="paciente">Para quem <span class="obrigatorio" aria-hidden="true">*</span></label>
+                    <select id="paciente" name="paciente" required>
+                        <option value="0">— escolher —</option>
+                        <?php foreach ($pacientes as $p): ?>
+                            <option value="<?= (int)$p['id'] ?>" <?= $form['paciente'] === (int)$p['id'] ? 'selected' : '' ?>>
+                                <?= e($p['nome_completo']) ?>
+                                <?= $p['relacao'] === 'proprio' ? '(tu)' : '' ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
-            <div class="campo">
-                <label for="plano">Plano <span class="obrigatorio" aria-hidden="true">*</span></label>
-                <select id="plano" name="plano" required>
-                    <option value="0">— escolher —</option>
-                    <?php foreach ($planosLista as $p): ?>
-                        <option value="<?= (int)$p['id'] ?>" <?= $form['plano'] === (int)$p['id'] ? 'selected' : '' ?>>
-                            <?= e($p['seguradora']) ?> — <?= e($p['nome']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
+                <div class="campo">
+                    <label for="plano">Plano <span class="obrigatorio" aria-hidden="true">*</span></label>
+                    <select id="plano" name="plano" required>
+                        <option value="0">— escolher —</option>
+                        <?php foreach ($planosLista as $p): ?>
+                            <option value="<?= (int)$p['id'] ?>" <?= $form['plano'] === (int)$p['id'] ? 'selected' : '' ?>>
+                                <?= e($p['seguradora']) ?> — <?= e($p['nome']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
-            <div class="campo">
-                <label for="apolice">Número de apólice</label>
-                <input type="text" id="apolice" name="apolice" maxlength="60" value="<?= e($form['apolice']) ?>">
-            </div>
+                <div class="campo">
+                    <label for="apolice">Número de apólice</label>
+                    <input type="text" id="apolice" name="apolice" maxlength="60" value="<?= e($form['apolice']) ?>">
+                </div>
 
-            <div class="campo">
-                <label for="beneficiario">Número de beneficiário</label>
-                <input type="text" id="beneficiario" name="beneficiario" maxlength="60" value="<?= e($form['beneficiario']) ?>">
-            </div>
+                <div class="campo">
+                    <label for="beneficiario">Número de beneficiário</label>
+                    <input type="text" id="beneficiario" name="beneficiario" maxlength="60" value="<?= e($form['beneficiario']) ?>">
+                </div>
 
-            <div class="campo">
-                <label for="valido_de">Válido de</label>
-                <input type="date" id="valido_de" name="valido_de" value="<?= e($form['valido_de']) ?>">
-            </div>
+                <div class="campo">
+                    <label for="valido_de">Válido de</label>
+                    <input type="date" id="valido_de" name="valido_de" value="<?= e($form['valido_de']) ?>">
+                </div>
 
-            <div class="campo">
-                <label for="valido_ate">Válido até</label>
-                <input type="date" id="valido_ate" name="valido_ate" value="<?= e($form['valido_ate']) ?>">
-            </div>
+                <div class="campo">
+                    <label for="valido_ate">Válido até</label>
+                    <input type="date" id="valido_ate" name="valido_ate" value="<?= e($form['valido_ate']) ?>">
+                </div>
 
-            <button type="submit" class="botao">Registar benefício</button>
-        </form>
+                <button type="submit" class="botao">Registar benefício</button>
+            </form>
+        </section>
     <?php endif; ?>
-</section>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

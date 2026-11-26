@@ -8,34 +8,101 @@ require __DIR__ . '/../includes/pagamentos.php';
 $u = exigir_login(['admin', 'rececao']);
 $pdo = db();
 
-$de = (string)($_GET['de'] ?? date('Y-m-01'));
-$ate = (string)($_GET['ate'] ?? date('Y-m-d'));
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $de)) { $de = date('Y-m-01'); }
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ate)) { $ate = date('Y-m-d'); }
+$validarData = static function (string $valor, string $padrao): string {
+    $data = DateTimeImmutable::createFromFormat('!Y-m-d', $valor);
+    return $data && $data->format('Y-m-d') === $valor ? $valor : $padrao;
+};
+$de = $validarData((string)($_GET['de'] ?? ''), date('Y-m-01'));
+$ate = $validarData((string)($_GET['ate'] ?? ''), date('Y-m-d'));
+if ($de > $ate) { [$de, $ate] = [$ate, $de]; }
 $deSql = $de . ' 00:00:00';
-$ateSql = date('Y-m-d', strtotime($ate . ' +1 day')) . ' 00:00:00';
-$dtExpr = "COALESCE(p.data_pagamento, p.pago_em, p.criado_em)";
+$ateSql = (new DateTimeImmutable($ate))->modify('+1 day')->format('Y-m-d') . ' 00:00:00';
 
-$st = $pdo->prepare("SELECT
-    COALESCE(SUM(CASE WHEN p.estado IN ('pago','reembolsado','parcialmente_reembolsado') THEN GREATEST(0,p.valor-p.valor_reembolsado) ELSE 0 END),0) recebido,
-    COALESCE(SUM(CASE WHEN p.estado IN ('pendente','em_processamento','parcialmente_pago') THEN p.valor ELSE 0 END),0) pendente_reg,
-    COALESCE(SUM(p.valor_reembolsado),0) reembolsado,
-    COALESCE(SUM(CASE WHEN p.estado IN ('recusado','falhado') THEN p.valor ELSE 0 END),0) falhado
-    FROM pagamentos p WHERE $dtExpr >= ? AND $dtExpr < ?");
+$st = $pdo->prepare("SELECT COALESCE(SUM(p.valor),0)
+    FROM pagamentos p
+    WHERE p.estado IN ('pago','reembolsado','parcialmente_reembolsado')
+      AND COALESCE(p.data_pagamento,p.pago_em,p.criado_em) >= ?
+      AND COALESCE(p.data_pagamento,p.pago_em,p.criado_em) < ?");
 $st->execute([$deSql, $ateSql]);
-$tot = $st->fetch() ?: ['recebido'=>0,'pendente_reg'=>0,'reembolsado'=>0,'falhado'=>0];
+$recebidoBruto = round((float)$st->fetchColumn(), 2);
+
+$st = $pdo->prepare("SELECT COALESCE(SUM(pr.valor),0)
+    FROM pagamentos_reembolsos pr
+    WHERE pr.reembolsado_em >= ? AND pr.reembolsado_em < ?");
+$st->execute([$deSql, $ateSql]);
+$reembolsadoPeriodo = round((float)$st->fetchColumn(), 2);
+
+$st = $pdo->prepare("SELECT COALESCE(SUM(p.valor),0)
+    FROM pagamentos p
+    WHERE p.estado IN ('pendente','em_processamento','parcialmente_pago')
+      AND p.criado_em >= ? AND p.criado_em < ?");
+$st->execute([$deSql, $ateSql]);
+$pendentePeriodo = round((float)$st->fetchColumn(), 2);
+
+$st = $pdo->prepare("SELECT COALESCE(SUM(p.valor),0)
+    FROM pagamentos p
+    WHERE p.estado IN ('recusado','falhado')
+      AND COALESCE(p.falhado_em,p.criado_em) >= ?
+      AND COALESCE(p.falhado_em,p.criado_em) < ?");
+$st->execute([$deSql, $ateSql]);
+$falhadoPeriodo = round((float)$st->fetchColumn(), 2);
+
+$tot = [
+    'recebido_bruto' => $recebidoBruto,
+    'recebido' => round($recebidoBruto - $reembolsadoPeriodo, 2),
+    'pendente_reg' => $pendentePeriodo,
+    'reembolsado' => $reembolsadoPeriodo,
+    'falhado' => $falhadoPeriodo,
+];
 
 // Dívida global (marcações ativas) - não depende do período para ser útil
 $st = $pdo->query("SELECT COALESCE(SUM(GREATEST(0,m.total_previsto - COALESCE(sub.pago,0))),0) FROM marcacoes m LEFT JOIN (SELECT marcacao_id, SUM(GREATEST(0,valor-valor_reembolsado)) pago FROM pagamentos WHERE estado IN ('pago','reembolsado','parcialmente_reembolsado') GROUP BY marcacao_id) sub ON sub.marcacao_id=m.id WHERE m.estado IN ('confirmada','concluida')");
 $dividaGlobal = round((float)$st->fetchColumn(), 2);
 
-// Por método
-$st = $pdo->prepare("SELECT p.metodo, p.metodo_detalhe, COUNT(*) n,
-    COALESCE(SUM(CASE WHEN p.estado IN ('pago','reembolsado','parcialmente_reembolsado') THEN GREATEST(0,p.valor-p.valor_reembolsado) ELSE 0 END),0) recebido,
-    COALESCE(SUM(p.valor_reembolsado),0) reembolsado
-    FROM pagamentos p WHERE $dtExpr >= ? AND $dtExpr < ? GROUP BY p.metodo, p.metodo_detalhe ORDER BY recebido DESC");
+// Recebimentos e reembolsos por método, cada um pela respetiva data.
+$st = $pdo->prepare("SELECT p.metodo, p.metodo_detalhe, COUNT(*) n, COALESCE(SUM(p.valor),0) recebido
+    FROM pagamentos p
+    WHERE p.estado IN ('pago','reembolsado','parcialmente_reembolsado')
+      AND COALESCE(p.data_pagamento,p.pago_em,p.criado_em) >= ?
+      AND COALESCE(p.data_pagamento,p.pago_em,p.criado_em) < ?
+    GROUP BY p.metodo, p.metodo_detalhe");
 $st->execute([$deSql, $ateSql]);
-$porMetodo = $st->fetchAll();
+$porMetodoMapa = [];
+foreach ($st->fetchAll() as $linha) {
+    $chave = (string)$linha['metodo'] . '|' . (string)($linha['metodo_detalhe'] ?? '');
+    $porMetodoMapa[$chave] = [
+        'metodo' => $linha['metodo'],
+        'metodo_detalhe' => $linha['metodo_detalhe'],
+        'n' => (int)$linha['n'],
+        'recebido_bruto' => (float)$linha['recebido'],
+        'reembolsado' => 0.0,
+    ];
+}
+$st = $pdo->prepare("SELECT p.metodo, p.metodo_detalhe, COALESCE(SUM(pr.valor),0) reembolsado
+    FROM pagamentos_reembolsos pr
+    JOIN pagamentos p ON p.id = pr.pagamento_id
+    WHERE pr.reembolsado_em >= ? AND pr.reembolsado_em < ?
+    GROUP BY p.metodo, p.metodo_detalhe");
+$st->execute([$deSql, $ateSql]);
+foreach ($st->fetchAll() as $linha) {
+    $chave = (string)$linha['metodo'] . '|' . (string)($linha['metodo_detalhe'] ?? '');
+    if (!isset($porMetodoMapa[$chave])) {
+        $porMetodoMapa[$chave] = [
+            'metodo' => $linha['metodo'],
+            'metodo_detalhe' => $linha['metodo_detalhe'],
+            'n' => 0,
+            'recebido_bruto' => 0.0,
+            'reembolsado' => 0.0,
+        ];
+    }
+    $porMetodoMapa[$chave]['reembolsado'] = (float)$linha['reembolsado'];
+}
+$porMetodo = array_values($porMetodoMapa);
+foreach ($porMetodo as &$linha) {
+    $linha['recebido'] = round((float)$linha['recebido_bruto'] - (float)$linha['reembolsado'], 2);
+}
+unset($linha);
+usort($porMetodo, static fn(array $a, array $b): int => $b['recebido'] <=> $a['recebido']);
 
 // Tratamentos mais rentáveis (receita líquida em consultas_tratamentos/preço final, período por data da consulta)
 $st = $pdo->prepare("SELECT t.nome, COUNT(*) n,
@@ -94,8 +161,9 @@ echo estilos_gestao();
 </form>
 
 <div class="grelha seccao">
-    <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($tot['recebido'])) ?></p><p class="ajuda">Total recebido (líquido)</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($tot['pendente_reg'])) ?></p><p class="ajuda">Pendente em registos (período)</p></div>
+    <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($tot['recebido_bruto'])) ?></p><p class="ajuda">Recebido bruto no período</p></div>
+    <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($tot['recebido'])) ?></p><p class="ajuda">Recebido líquido no período</p></div>
+    <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($tot['pendente_reg'])) ?></p><p class="ajuda">Pendente em registos (criados no período)</p></div>
     <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($dividaGlobal)) ?></p><p class="ajuda">Total em dívida (global)</p></div>
     <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($tot['reembolsado'])) ?></p><p class="ajuda">Reembolsos registados</p></div>
     <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($tot['falhado'])) ?></p><p class="ajuda">Falhados/recusados</p></div>
@@ -103,8 +171,8 @@ echo estilos_gestao();
 
 <section class="cartao seccao"><h2>Pagamentos por método</h2>
 <?php if (!$porMetodo): ?><p class="ajuda">Sem dados no período.</p><?php else: ?>
-<div class="tabela-scroll"><table class="tabela"><thead><tr><th>Método</th><th>Movimentos</th><th>Recebido líquido</th><th>Reembolsado</th></tr></thead><tbody>
-<?php foreach ($porMetodo as $r): ?><tr><td><?= e(pagamento_metodo_legivel($r['metodo'], $r['metodo_detalhe'] ?? null)) ?></td><td><?= (int)$r['n'] ?></td><td><?= e(formatar_preco($r['recebido'])) ?></td><td><?= e(formatar_preco($r['reembolsado'])) ?></td></tr><?php endforeach; ?>
+<div class="tabela-scroll"><table class="tabela"><thead><tr><th>Método</th><th>Movimentos recebidos</th><th>Recebido bruto</th><th>Reembolsado no período</th><th>Recebido líquido</th></tr></thead><tbody>
+<?php foreach ($porMetodo as $r): ?><tr><td><?= e(pagamento_metodo_legivel($r['metodo'], $r['metodo_detalhe'] ?? null)) ?></td><td><?= (int)$r['n'] ?></td><td><?= e(formatar_preco($r['recebido_bruto'])) ?></td><td><?= e(formatar_preco($r['reembolsado'])) ?></td><td><?= e(formatar_preco($r['recebido'])) ?></td></tr><?php endforeach; ?>
 </tbody></table></div>
 <?php endif; ?></section>
 

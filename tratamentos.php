@@ -18,7 +18,24 @@ $tituloPagina = 'Tratamentos';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('servicos_titulo', 'Tratamentos')) ?></h1>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">01 / 2026</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>O que tratamos</span>
+        </div>
+        <span class="interior-hero-aside">Cuidado dentário completo</span>
+    </div>
+    <h1><?= e(conteudo('servicos_titulo', 'Tratamentos')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Prevenção, estética e reabilitação. Explicamos cada passo e
+            apresentamos alternativas antes de qualquer intervenção.
+        </p>
+        <span>Escolhe um tratamento ↓</span>
+    </div>
+</section>
 
 <div class="alerta alerta-info" role="note">
     <strong>Informação importante sobre preços:</strong>

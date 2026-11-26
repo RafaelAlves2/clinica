@@ -42,9 +42,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erros[] = 'A mensagem não pode ter mais de 2000 caracteres.';
     }
 
-    // BUGFIX: anti-spam ANTES do upload do CV. Antes, o ficheiro era guardado
-    // em disco e só depois se verificava o limite por IP; bloqueios posteriores
-    // deixavam CVs órfãos (podiam encher o disco).
     if ($erros === []) {
         $ip = ip_cliente();
         $st = $pdo->prepare('SELECT COUNT(*) FROM candidaturas WHERE ip = ? AND criado_em > (NOW() - INTERVAL 1 HOUR)');
@@ -54,7 +51,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Upload de CV (opcional, PDF/DOC/DOCX, máx. 5 MB)
     $cvPath = null;
     if ($erros === [] && isset($_FILES['cv']) && ($_FILES['cv']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
         $f = $_FILES['cv'];
@@ -100,7 +96,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             error_log('Erro candidatura: ' . $e->getMessage());
             $erros[] = 'Ocorreu um erro. Tenta novamente.';
-            // BUGFIX: se o INSERT falhou depois do upload, remover o ficheiro órfão.
             if ($cvPath !== null && is_file(__DIR__ . '/' . $cvPath)) {
                 @unlink(__DIR__ . '/' . $cvPath);
             }
@@ -112,11 +107,24 @@ $tituloPagina = 'Trabalha connosco';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('trabalha_titulo', 'Trabalha connosco')) ?></h1>
-<p class="ajuda">
-    Procuramos pessoas que partilhem os nossos valores: rigor clínico, proximidade e transparência.
-    Envia-nos a tua candidatura espontânea — respondemos a todas.
-</p>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">07 / 2026</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>Carreiras</span>
+        </div>
+        <span class="interior-hero-aside">Candidatura espontânea</span>
+    </div>
+    <h1><?= e(conteudo('trabalha_titulo', 'Trabalha connosco')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Procuramos pessoas que partilhem os nossos valores: rigor clínico,
+            proximidade e transparência. Respondemos a todas as candidaturas.
+        </p>
+        <span>Envia a tua ↓</span>
+    </div>
+</section>
 
 <?php if ($enviado): ?>
     <div class="alerta alerta-sucesso" role="alert">
@@ -134,11 +142,11 @@ require __DIR__ . '/includes/cabecalho.php';
             <?= csrf_campo() ?>
 
             <div class="campo">
-                <label for="nome">Nome completo <span class="obrigatorio">*</span></label>
+                <label for="nome">Nome completo <span class="obrigatorio" aria-hidden="true">*</span></label>
                 <input type="text" id="nome" name="nome" required maxlength="150" value="<?= e($form['nome']) ?>">
             </div>
             <div class="campo">
-                <label for="email">Email <span class="obrigatorio">*</span></label>
+                <label for="email">Email <span class="obrigatorio" aria-hidden="true">*</span></label>
                 <input type="email" id="email" name="email" required maxlength="190" value="<?= e($form['email']) ?>">
             </div>
             <div class="campo">
@@ -146,7 +154,7 @@ require __DIR__ . '/includes/cabecalho.php';
                 <input type="tel" id="telemovel" name="telemovel" maxlength="20" value="<?= e($form['telemovel']) ?>">
             </div>
             <div class="campo">
-                <label for="area">Área a que te candidatas <span class="obrigatorio">*</span></label>
+                <label for="area">Área a que te candidatas <span class="obrigatorio" aria-hidden="true">*</span></label>
                 <select id="area" name="area" required>
                     <option value="">— escolher —</option>
                     <?php foreach ($areas as $v => $t): ?>

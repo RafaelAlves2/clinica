@@ -241,9 +241,15 @@ function registar_reembolso_administrativo(PDO $pdo, int $pagamentoId, float $va
         $novo = round((float)$p['valor_reembolsado'] + min($valor, $disponivel), 2);
         $estado = $novo >= round((float)$p['valor'], 2) - 0.0001 ? 'reembolsado' : 'parcialmente_reembolsado';
         $obs = trim(((string)($p['observacoes'] ?? '')) . ($motivo !== '' ? "\n[Reembolso admin] ".$motivo : "\n[Reembolso admin registado]"));
+        $valorMovimento = round($novo - (float)$p['valor_reembolsado'], 2);
         $pdo->prepare('UPDATE pagamentos SET valor_reembolsado=?, estado=?, reembolsado_em=NOW(), observacoes=? WHERE id=?')
             ->execute([$novo, $estado, mb_substr($obs,0,255), $pagamentoId]);
-        registar_admin('registar_reembolso', 'pagamentos', $pagamentoId, formatar_preco($novo - (float)$p['valor_reembolsado']) . ($motivo?': '.$motivo:'') . ' [registo administrativo; devolução real depende do meio de pagamento]');
+        $pdo->prepare(
+            "INSERT INTO pagamentos_reembolsos
+                (pagamento_id, origem, valor, motivo, registado_por, reembolsado_em)
+             VALUES (?, 'administrativo', ?, ?, ?, NOW())"
+        )->execute([$pagamentoId, $valorMovimento, $motivo !== '' ? $motivo : null, $staffId ?: null]);
+        registar_admin('registar_reembolso', 'pagamentos', $pagamentoId, formatar_preco($valorMovimento) . ($motivo?': '.$motivo:'') . ' [registo administrativo; devolução real depende do meio de pagamento]');
         criar_notificacao($pdo, (int)$p['utilizador_id'], (int)$p['marcacao_id'], 'pagamento_confirmado', 'Reembolso registado',
             'Foi registado um reembolso de ' . formatar_preco($novo - (float)$p['valor_reembolsado']) . ' na marcação ' . $p['referencia'] . '. Se aplicável, a devolução pelo meio de pagamento segue o processo da clínica/prestador.');
         $pdo->commit();
@@ -300,12 +306,27 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
 
     $pdo->beginTransaction();
     try {
+        $st = $pdo->prepare('SELECT pagamento_id FROM pagamentos_gateway_eventos WHERE gateway = ? AND evento_id = ? LIMIT 1 FOR UPDATE');
+        $st->execute([$gateway, $idempotency]);
+        $eventoExistente = $st->fetchColumn();
+        if ($eventoExistente !== false) {
+            $st = $pdo->prepare('SELECT estado FROM pagamentos WHERE id = ?');
+            $st->execute([(int)$eventoExistente]);
+            $estadoExistente = $st->fetchColumn();
+            $pdo->commit();
+            return ['deduplicado' => true, 'pagamento_id' => (int)$eventoExistente, 'estado' => $estadoExistente ?: 'pago'];
+        }
+
+        // Compatibilidade com eventos que já tinham sido processados antes
+        // da criação do registo de eventos (migração 007).
         $st = $pdo->prepare('SELECT id, estado, marcacao_id FROM pagamentos WHERE gateway = ? AND idempotency_key = ? LIMIT 1 FOR UPDATE');
         $st->execute([$gateway, $idempotency]);
-        $exist = $st->fetch();
-        if ($exist) {
+        $legado = $st->fetch();
+        if ($legado) {
+            $pdo->prepare('INSERT IGNORE INTO pagamentos_gateway_eventos (gateway, evento_id, tipo_evento, pagamento_id) VALUES (?, ?, ?, ?)')
+                ->execute([$gateway, $idempotency, (string)($evt['tipo_evento'] ?? ''), (int)$legado['id']]);
             $pdo->commit();
-            return ['deduplicado' => true, 'pagamento_id' => (int)$exist['id'], 'estado' => $exist['estado']];
+            return ['deduplicado' => true, 'pagamento_id' => (int)$legado['id'], 'estado' => $legado['estado']];
         }
         if ($pagamentoId) {
             $st = $pdo->prepare('SELECT p.*, m.utilizador_id, m.referencia AS marc_ref, m.estado AS marc_estado FROM pagamentos p JOIN marcacoes m ON m.id=p.marcacao_id WHERE p.id=? FOR UPDATE');
@@ -316,6 +337,22 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
         }
         $p = $st->fetch();
         if (!$p) { throw new RuntimeException('Pagamento alvo não encontrado.'); }
+
+        // O evento tem de apontar para a mesma marcação e, nos eventos de
+        // PaymentIntent, para a mesma transação registada. Sem isto, um evento
+        // assinado com metadados trocados poderia confirmar outro pagamento.
+        if ($marcacaoId > 0 && (int)$p['marcacao_id'] !== $marcacaoId) {
+            throw new GatewayEventoInvalidoException('Pagamento rejeitado: a marcação do evento não corresponde ao pagamento.');
+        }
+        $tipoEvento = (string)($evt['tipo_evento'] ?? '');
+        $refGuardada = trim((string)($p['referencia_transacao'] ?? ''));
+        if (str_starts_with($tipoEvento, 'payment_intent.')
+            && $referencia !== ''
+            && $refGuardada !== ''
+            && $referencia !== $refGuardada) {
+            throw new GatewayEventoInvalidoException('Pagamento rejeitado: a transação do evento não corresponde ao pagamento.');
+        }
+
         // Um evento atrasado (ex.: processing) nunca pode despromover um
         // pagamento já confirmado. O estado "pago" é terminal para o evento.
         if (($p['estado'] ?? '') === 'pago' && $estadoDestino !== 'pago') {
@@ -344,6 +381,15 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
                 throw new GatewayEventoInvalidoException('Pagamento rejeitado: ' . $validacao['erro']);
             }
         }
+        $insEvento = $pdo->prepare(
+            'INSERT IGNORE INTO pagamentos_gateway_eventos (gateway, evento_id, tipo_evento, pagamento_id) VALUES (?, ?, ?, ?)'
+        );
+        $insEvento->execute([$gateway, $idempotency, $tipoEvento, (int)$p['id']]);
+        if ($insEvento->rowCount() !== 1) {
+            $pdo->commit();
+            return ['deduplicado' => true, 'pagamento_id' => (int)$p['id'], 'estado' => (string)$p['estado']];
+        }
+
         $sql = "UPDATE pagamentos SET estado=?, gateway=?, gateway_metodo=?, idempotency_key=?, prestador=?, referencia_transacao=?, atualizado_em=NOW()";
         $params = [$estadoDestino, $gateway, $metodoGateway ?: null, $idempotency, $gateway, $referencia ?: ($p['referencia_transacao'] ?? null)];
         if ($estadoDestino === 'pago') { $sql .= ", pago_em=NOW(), data_pagamento=COALESCE(data_pagamento,NOW())"; }
@@ -365,6 +411,148 @@ function gateway_confirmar_pagamento(PDO $pdo, array $evt): array
         }
         $pdo->commit();
         return ['deduplicado' => false, 'pagamento_id' => (int)$p['id'], 'estado' => $estadoDestino];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        throw $e;
+    }
+}
+
+/**
+ * Reconcilia o valor acumulado de reembolsos comunicado pela Stripe.
+ * A Stripe envia amount_refunded acumulado no charge.refunded; por isso,
+ * só a diferença face ao total já registado é adicionada ao livro de movimentos.
+ */
+function gateway_registar_reembolso_stripe(PDO $pdo, array $evt): array
+{
+    $gateway = (string)($evt['gateway'] ?? '');
+    $eventoId = (string)($evt['idempotency_key'] ?? '');
+    $pagamentoId = (int)($evt['pagamento_id'] ?? 0);
+    $referencia = trim((string)($evt['referencia_transacao'] ?? ''));
+    $acumulado = $evt['valor_reembolsado_acumulado'] ?? null;
+    $moedaEvento = mb_strtolower(trim((string)($evt['moeda'] ?? '')));
+    $moedaEsperada = mb_strtolower(trim((string)config_valor_texto($pdo, 'moeda', 'EUR')));
+
+    if ($gateway !== 'stripe' || $eventoId === '' || !is_numeric($acumulado) || $referencia === '') {
+        throw new GatewayEventoInvalidoException('Evento de reembolso Stripe incompleto.');
+    }
+    $acumulado = round((float)$acumulado, 2);
+    if (!is_finite($acumulado) || $acumulado < 0) {
+        throw new GatewayEventoInvalidoException('Montante de reembolso Stripe inválido.');
+    }
+    if ($moedaEvento !== '' && $moedaEsperada !== '' && $moedaEvento !== $moedaEsperada) {
+        throw new GatewayEventoInvalidoException('Moeda do reembolso Stripe não corresponde à moeda da clínica.');
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $st = $pdo->prepare(
+            'SELECT pagamento_id FROM pagamentos_gateway_eventos WHERE gateway = ? AND evento_id = ? LIMIT 1 FOR UPDATE'
+        );
+        $st->execute([$gateway, $eventoId]);
+        $existente = $st->fetchColumn();
+        if ($existente !== false) {
+            $st = $pdo->prepare('SELECT valor_reembolsado, estado FROM pagamentos WHERE id = ?');
+            $st->execute([(int)$existente]);
+            $estado = $st->fetch() ?: [];
+            $pdo->commit();
+            return [
+                'deduplicado' => true,
+                'pagamento_id' => (int)$existente,
+                'valor_reembolsado_total' => (float)($estado['valor_reembolsado'] ?? 0),
+                'estado' => (string)($estado['estado'] ?? ''),
+            ];
+        }
+
+        if ($pagamentoId > 0) {
+            $st = $pdo->prepare(
+                'SELECT p.*, m.utilizador_id, m.referencia AS marc_ref
+                   FROM pagamentos p
+                   JOIN marcacoes m ON m.id = p.marcacao_id
+                  WHERE p.id = ? AND p.gateway = ?
+                  FOR UPDATE'
+            );
+            $st->execute([$pagamentoId, $gateway]);
+        } else {
+            $st = $pdo->prepare(
+                'SELECT p.*, m.utilizador_id, m.referencia AS marc_ref
+                   FROM pagamentos p
+                   JOIN marcacoes m ON m.id = p.marcacao_id
+                  WHERE p.gateway = ? AND p.referencia_transacao = ?
+                  ORDER BY p.id DESC LIMIT 1
+                  FOR UPDATE'
+            );
+            $st->execute([$gateway, $referencia]);
+        }
+        $p = $st->fetch();
+        if (!$p) {
+            throw new GatewayEventoInvalidoException('Não foi encontrado o pagamento associado ao reembolso Stripe.');
+        }
+        if (trim((string)($p['referencia_transacao'] ?? '')) !== $referencia) {
+            throw new GatewayEventoInvalidoException('A transação do reembolso não corresponde ao pagamento registado.');
+        }
+        if (!in_array((string)$p['estado'], ['pago', 'parcialmente_reembolsado', 'reembolsado'], true)) {
+            throw new GatewayEventoInvalidoException('Só é possível reconciliar reembolsos de pagamentos confirmados.');
+        }
+
+        $valorPago = round((float)$p['valor'], 2);
+        $valorAnterior = round((float)$p['valor_reembolsado'], 2);
+        if ($acumulado > $valorPago + 0.01) {
+            throw new GatewayEventoInvalidoException('O reembolso acumulado excede o pagamento original.');
+        }
+        $novoTotal = max($valorAnterior, min($valorPago, $acumulado));
+        $delta = round($novoTotal - $valorAnterior, 2);
+
+        $ins = $pdo->prepare(
+            'INSERT IGNORE INTO pagamentos_gateway_eventos (gateway, evento_id, tipo_evento, pagamento_id) VALUES (?, ?, ?, ?)'
+        );
+        $ins->execute([$gateway, $eventoId, (string)($evt['tipo_evento'] ?? 'charge.refunded'), (int)$p['id']]);
+        if ($ins->rowCount() !== 1) {
+            $pdo->commit();
+            return [
+                'deduplicado' => true,
+                'pagamento_id' => (int)$p['id'],
+                'valor_reembolsado_total' => $valorAnterior,
+                'estado' => (string)$p['estado'],
+            ];
+        }
+
+        if ($delta > 0.0001) {
+            $pdo->prepare(
+                "INSERT INTO pagamentos_reembolsos
+                    (pagamento_id, gateway, evento_id, origem, valor, motivo, reembolsado_em)
+                 VALUES (?, 'stripe', ?, 'gateway', ?, 'Reembolso confirmado pela notificação Stripe', NOW())"
+            )->execute([(int)$p['id'], $eventoId, $delta]);
+
+            $novoEstado = $novoTotal >= $valorPago - 0.0001
+                ? 'reembolsado'
+                : 'parcialmente_reembolsado';
+            $pdo->prepare(
+                'UPDATE pagamentos
+                    SET valor_reembolsado = ?, estado = ?, reembolsado_em = NOW(), atualizado_em = NOW()
+                  WHERE id = ?'
+            )->execute([$novoTotal, $novoEstado, (int)$p['id']]);
+
+            criar_notificacao(
+                $pdo,
+                (int)$p['utilizador_id'],
+                (int)$p['marcacao_id'],
+                'pagamento_confirmado',
+                'Reembolso confirmado',
+                'A Stripe confirmou um reembolso de ' . formatar_preco($delta)
+                    . ' relativo à marcação ' . $p['marc_ref'] . '.'
+            );
+        } else {
+            $novoEstado = (string)$p['estado'];
+        }
+
+        $pdo->commit();
+        return [
+            'deduplicado' => false,
+            'pagamento_id' => (int)$p['id'],
+            'valor_reembolsado_total' => $novoTotal,
+            'valor_reembolso_novo' => $delta,
+            'estado' => $novoEstado,
+        ];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) { $pdo->rollBack(); }
         throw $e;

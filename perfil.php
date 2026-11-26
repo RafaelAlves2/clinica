@@ -34,7 +34,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $erros['dados'][] = 'Indica um telemóvel válido (só números).';
         }
         if ($erros['dados'] === []) {
-            // BUGFIX menor: try/catch para rollback em caso de falha do 2º UPDATE
             try {
                 $pdo->beginTransaction();
                 $pdo->prepare('UPDATE utilizadores SET nome_completo = ?, telemovel = ? WHERE id = ?')
@@ -62,8 +61,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $nova  = (string)($_POST['nova'] ?? '');
         $nova2 = (string)($_POST['nova2'] ?? '');
 
-        // BUGFIX médio: rate limit contra brute-force da password atual.
-        // Reutiliza tentativas_login com prefixo #perfilpwd#.
         $emailKey = '#perfilpwd#' . mb_substr((string)$conta['email'], 0, 180);
         $ip       = ip_cliente();
         $stR = $pdo->prepare(
@@ -97,14 +94,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
                 $pdo->prepare('UPDATE utilizadores SET password_hash = ? WHERE id = ?')
                     ->execute([password_hash($nova, PASSWORD_DEFAULT), $u['id']]);
-
-                // BUGFIX crítico: invalidar TODOS os tokens de recuperação pendentes.
-                // Sem isto, um atacante com link de recuperação ainda podia usá-lo depois
-                // de o utilizador mudar a password — reapossando-se da conta.
                 $pdo->prepare("UPDATE tokens_conta SET usado_em = NOW() WHERE utilizador_id = ? AND tipo = 'recuperar_password' AND usado_em IS NULL")
                     ->execute([$u['id']]);
-
-                // Limpa falhas do rate limit desta operação
                 $pdo->prepare('DELETE FROM tentativas_login WHERE email = ? AND sucesso = 0')->execute([$emailKey]);
                 $pdo->commit();
             } catch (Throwable $e) {
@@ -201,7 +192,6 @@ $rotulosBeneficio = [
     'validado' => 'Validado', 'rejeitado' => 'Rejeitado', 'expirado' => 'Expirado',
 ];
 
-// BUGFIX menor: helper que evita crash com '0000-00-00'
 $fmtData = static function (?string $d): string {
     if ($d === null || $d === '' || str_starts_with($d, '0000-00-00')) { return '—'; }
     try {
@@ -216,87 +206,127 @@ require __DIR__ . '/includes/cabecalho.php';
 echo estilos_conta();
 ?>
 
-<h1>Perfil e familiares</h1>
-<?= submenu_conta('perfil', nao_lidas($pdo, $u['id'])) ?>
+<div class="dash-root">
 
-<section class="cartao seccao">
-    <h2>Dados de contacto</h2>
-    <?php foreach ($erros['dados'] as $erro): ?><div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div><?php endforeach; ?>
-    <form method="post" action="perfil.php" novalidate>
-        <?= csrf_campo() ?>
-        <input type="hidden" name="acao" value="dados">
-        <div class="campo">
-            <label for="nome">Nome completo</label>
-            <input type="text" id="nome" name="nome" required maxlength="150" autocomplete="name" value="<?= e($formDados['nome']) ?>">
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Perfil</span>
+            <h1>Perfil e familiares</h1>
+            <p>Os teus dados, palavra-passe, seguros e dependentes associados à conta.</p>
         </div>
-        <div class="campo">
-            <label for="email">Email</label>
-            <input type="email" id="email" value="<?= e($conta['email']) ?>" disabled>
-            <p class="ajuda">O email é o teu identificador de acesso e não pode ser alterado aqui.</p>
-        </div>
-        <div class="campo">
-            <label for="telemovel">Telemóvel</label>
-            <input type="tel" id="telemovel" name="telemovel" required maxlength="20" autocomplete="tel" value="<?= e($formDados['telemovel']) ?>">
-        </div>
-        <button type="submit" class="botao">Guardar dados</button>
-    </form>
-</section>
+    </div>
 
-<section class="cartao seccao">
-    <h2>Alterar palavra-passe</h2>
-    <?php foreach ($erros['password'] as $erro): ?><div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div><?php endforeach; ?>
-    <form method="post" action="perfil.php" novalidate>
-        <?= csrf_campo() ?>
-        <input type="hidden" name="acao" value="password">
-        <div class="campo">
-            <label for="atual">Palavra-passe atual</label>
-            <input type="password" id="atual" name="atual" required maxlength="72" autocomplete="current-password">
-        </div>
-        <div class="campo">
-            <label for="nova">Nova palavra-passe</label>
-            <input type="password" id="nova" name="nova" required minlength="8" maxlength="72" autocomplete="new-password" aria-describedby="aj-nova">
-            <p id="aj-nova" class="ajuda">Mínimo 8 caracteres, com pelo menos uma letra e um número.</p>
-        </div>
-        <div class="campo">
-            <label for="nova2">Repetir nova palavra-passe</label>
-            <input type="password" id="nova2" name="nova2" required maxlength="72" autocomplete="new-password">
-        </div>
-        <button type="submit" class="botao">Alterar palavra-passe</button>
-    </form>
-</section>
+    <?= submenu_conta('perfil', nao_lidas($pdo, $u['id'])) ?>
 
-<section class="seccao">
-    <h2>Seguros e benefícios</h2>
+    <section class="cartao seccao">
+        <h2>Dados de contacto</h2>
+        <?php foreach ($erros['dados'] as $erro): ?>
+            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+        <?php endforeach; ?>
+        <form method="post" action="perfil.php" novalidate>
+            <?= csrf_campo() ?>
+            <input type="hidden" name="acao" value="dados">
+            <div class="campo">
+                <label for="nome">Nome completo</label>
+                <input type="text" id="nome" name="nome" required maxlength="150" autocomplete="name" value="<?= e($formDados['nome']) ?>">
+            </div>
+            <div class="campo">
+                <label for="email">Email</label>
+                <input type="email" id="email" value="<?= e($conta['email']) ?>" disabled>
+                <p class="ajuda">O email é o teu identificador de acesso e não pode ser alterado aqui.</p>
+            </div>
+            <div class="campo">
+                <label for="telemovel">Telemóvel</label>
+                <input type="tel" id="telemovel" name="telemovel" required maxlength="20" autocomplete="tel" value="<?= e($formDados['telemovel']) ?>">
+            </div>
+            <button type="submit" class="botao">Guardar dados</button>
+        </form>
+    </section>
+
+    <section class="cartao seccao">
+        <h2>Alterar palavra-passe</h2>
+        <?php foreach ($erros['password'] as $erro): ?>
+            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+        <?php endforeach; ?>
+        <form method="post" action="perfil.php" novalidate>
+            <?= csrf_campo() ?>
+            <input type="hidden" name="acao" value="password">
+            <div class="campo">
+                <label for="atual">Palavra-passe atual</label>
+                <input type="password" id="atual" name="atual" required maxlength="72" autocomplete="current-password">
+            </div>
+            <div class="campo">
+                <label for="nova">Nova palavra-passe</label>
+                <input type="password" id="nova" name="nova" required minlength="8" maxlength="72" autocomplete="new-password" aria-describedby="aj-nova">
+                <p id="aj-nova" class="ajuda">Mínimo 8 caracteres, com pelo menos uma letra e um número.</p>
+            </div>
+            <div class="campo">
+                <label for="nova2">Repetir nova palavra-passe</label>
+                <input type="password" id="nova2" name="nova2" required maxlength="72" autocomplete="new-password">
+            </div>
+            <button type="submit" class="botao">Alterar palavra-passe</button>
+        </form>
+    </section>
+
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Seguros</span>
+            <h2>Seguros e <span>benefícios</span></h2>
+        </div>
+        <a href="seguros.php">Gerir</a>
+    </div>
+
     <?php if (!$beneficiosPerfil): ?>
-        <div class="alerta alerta-info">Ainda não tens seguros ou benefícios registados. <a href="seguros.php">Registar benefício</a></div>
+        <div class="dash-empty">
+            <span class="dash-empty-symbol" aria-hidden="true">◇</span>
+            <h3>Ainda não tens benefícios registados</h3>
+            <p>Regista o teu seguro ou plano de benefícios para usufruir dos descontos.</p>
+            <a class="botao" href="seguros.php">Registar benefício</a>
+        </div>
     <?php else: ?>
-        <div class="grelha grelha-larga">
+        <div class="dash-list">
             <?php foreach ($beneficiosPerfil as $b): ?>
-                <article class="cartao consulta-cartao">
-                    <strong><?= e($b['paciente']) ?></strong>
-                    <span><?= e($b['seguradora']) ?> — <?= e($b['plano']) ?></span>
-                    <span class="ajuda">Estado: <?= e($rotulosBeneficio[$b['estado_validacao']] ?? $b['estado_validacao']) ?></span>
-                    <?php if ($b['valido_de'] || $b['valido_ate']): ?>
-                        <span class="ajuda">Validade: <?= e($fmtData($b['valido_de'])) ?> a <?= e($fmtData($b['valido_ate'])) ?></span>
-                    <?php endif; ?>
-                </article>
+                <div class="dash-list-row">
+                    <span class="dash-list-mark" aria-hidden="true">◇</span>
+                    <div class="dash-list-copy">
+                        <strong><?= e($b['paciente']) ?></strong>
+                        <span><?= e($b['seguradora']) ?> — <?= e($b['plano']) ?></span>
+                        <small>
+                            Estado: <?= e($rotulosBeneficio[$b['estado_validacao']] ?? $b['estado_validacao']) ?>
+                            <?php if ($b['valido_de'] || $b['valido_ate']): ?>
+                                · Validade: <?= e($fmtData($b['valido_de'])) ?> a <?= e($fmtData($b['valido_ate'])) ?>
+                            <?php endif; ?>
+                        </small>
+                    </div>
+                </div>
             <?php endforeach; ?>
         </div>
-        <p><a href="seguros.php">Gerir seguros e benefícios →</a></p>
     <?php endif; ?>
-</section>
 
-<section class="seccao">
-    <h2>Os meus familiares</h2>
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Familiares</span>
+            <h2>Os meus <span>familiares</span></h2>
+        </div>
+    </div>
+
     <p class="ajuda">Para adicionar um familiar novo, usa o passo «Pacientes» quando marcares uma consulta.</p>
+
     <?php if (!$familiares): ?>
-        <div class="alerta alerta-info">Ainda não tens familiares associados.</div>
+        <div class="dash-empty">
+            <span class="dash-empty-symbol" aria-hidden="true">◉</span>
+            <h3>Sem familiares associados</h3>
+            <p>Podes adicionar dependentes no fluxo de marcação de consulta.</p>
+            <a class="botao botao-secundario" href="marcar.php">Marcar consulta</a>
+        </div>
     <?php endif; ?>
 
     <?php foreach ($familiares as $f): $pid = (int)$f['id']; ?>
         <article class="cartao seccao">
             <h3><?= e($f['nome_completo']) ?> <span class="ajuda">(<?= e($relacoes[$f['relacao']] ?? '') ?>)</span></h3>
-            <?php foreach ($erros['familiar'][$pid] ?? [] as $erro): ?><div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div><?php endforeach; ?>
+            <?php foreach ($erros['familiar'][$pid] ?? [] as $erro): ?>
+                <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+            <?php endforeach; ?>
 
             <form method="post" action="perfil.php" novalidate>
                 <?= csrf_campo() ?>
@@ -329,6 +359,7 @@ echo estilos_conta();
             </form>
         </article>
     <?php endforeach; ?>
-</section>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

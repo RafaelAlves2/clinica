@@ -15,7 +15,24 @@ $tituloPagina = 'Seguros e acordos';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1>Seguros e acordos</h1>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">06 / 2026</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>Seguros e acordos</span>
+        </div>
+        <span class="interior-hero-aside"><?= count($seguradoras) ?> acordo<?= count($seguradoras) === 1 ? '' : 's' ?></span>
+    </div>
+    <h1>Seguros e acordos<span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Trabalhamos com vários seguros de saúde e planos dentários.
+            A aplicação de qualquer desconto depende de validação prévia pela clínica.
+        </p>
+        <span>Vê os acordos ↓</span>
+    </div>
+</section>
 
 <div class="alerta alerta-info" role="note">
     A informação abaixo é indicativa. A aplicação de qualquer desconto depende sempre
@@ -27,11 +44,11 @@ require __DIR__ . '/includes/cabecalho.php';
 <?php if (!$seguradoras): ?>
     <div class="alerta alerta-info">De momento não temos acordos publicados. Contacta-nos.</div>
 <?php else: ?>
-    <div class="grelha grelha-larga seccao">
+    <div class="grelha grelha-larga" data-stagger="80">
         <?php foreach ($seguradoras as $s): ?>
             <article class="cartao">
                 <h2><?= e($s['nome']) ?></h2>
-                <p class="ajuda"><?= e($s['tipo']) ?></p>
+                <p class="ajuda" style="margin-top: 0;"><?= e($s['tipo']) ?></p>
                 <?php if ($s['planos']): ?>
                     <p class="ajuda">Planos: <?= e(str_replace('||', ', ', $s['planos'])) ?></p>
                 <?php endif; ?>
@@ -40,11 +57,14 @@ require __DIR__ . '/includes/cabecalho.php';
     </div>
 <?php endif; ?>
 
-<p>
+<p style="margin-top: var(--esp-5);">
     Tens um seguro ou plano que não está aqui?
     <a href="contactos.php">Contacta-nos</a> — podemos verificar a possibilidade de acordo.
 </p>
 
-<p><a class="botao" href="seguros.php">Registar o meu benefício</a></p>
+<p>
+    <a class="botao" href="seguros.php">Registar o meu benefício</a>
+    <a class="botao botao-secundario" href="marcar.php">Marcar consulta</a>
+</p>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

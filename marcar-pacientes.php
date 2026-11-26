@@ -6,7 +6,7 @@ require __DIR__ . '/includes/marcacao.php';
 $u   = exigir_login();
 $pdo = db();
 
-// ---------- Dentista escolhido (vem do botão "Marcar com este dentista") ----------
+// ---------- Dentista escolhido ----------
 $dentistaGet   = filter_input(INPUT_GET, 'dentista', FILTER_VALIDATE_INT) ?: 0;
 $tratamentoGet = filter_input(INPUT_GET, 'tratamento', FILTER_VALIDATE_INT) ?: 0;
 
@@ -17,14 +17,12 @@ if ($dentistaGet > 0) {
         flash_definir('erro', 'Esse dentista não está disponível.');
         redirecionar('dentistas.php?modo=marcar');
     }
-    // Mudou de dentista: larga as reservas antigas e recomeça
     if (($_SESSION['marcacao']['dentista_id'] ?? 0) !== $dentistaGet) {
         if (!empty($_SESSION['marcacao']['token'])) {
             libertar_reservas($pdo, $_SESSION['marcacao']['token']);
         }
         $_SESSION['marcacao'] = ['dentista_id' => $dentistaGet, 'tratamento_id' => $tratamentoGet];
     } elseif ($tratamentoGet > 0) {
-        // Mantém/atualiza o tratamento inicial escolhido ao longo do fluxo
         $_SESSION['marcacao']['tratamento_id'] = $tratamentoGet;
     }
 }
@@ -42,7 +40,6 @@ if (!$dentista) {
     redirecionar('dentistas.php?modo=marcar');
 }
 
-// ---------- Pacientes que este utilizador pode marcar ----------
 function pacientes_autorizados(PDO $pdo, int $utilizadorId): array
 {
     $st = $pdo->prepare(
@@ -59,7 +56,6 @@ function pacientes_autorizados(PDO $pdo, int $utilizadorId): array
 $autorizados    = pacientes_autorizados($pdo, $u['id']);
 $idsAutorizados = array_map('intval', array_column($autorizados, 'id'));
 
-// Dados do utilizador (para pré-preencher o contacto)
 $st = $pdo->prepare('SELECT nome_completo, telemovel FROM utilizadores WHERE id = ?');
 $st->execute([$u['id']]);
 $conta = $st->fetch();
@@ -74,7 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
     $acao = (string)($_POST['acao'] ?? '');
 
-    // ---------- Adicionar familiar ----------
     if ($acao === 'adicionar_familiar') {
         $formFam['nome']       = trim((string)($_POST['nome'] ?? ''));
         $formFam['nascimento'] = trim((string)($_POST['nascimento'] ?? ''));
@@ -105,7 +100,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare('INSERT INTO autorizacoes_paciente (utilizador_id, paciente_id, relacao) VALUES (?, ?, ?)')
                     ->execute([$u['id'], $pid, $formFam['relacao']]);
                 $pdo->commit();
-
                 flash_definir('sucesso', 'Familiar adicionado. Já o podes escolher abaixo.');
                 redirecionar('marcar-pacientes.php');
             } catch (PDOException $e) {
@@ -116,7 +110,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // ---------- Continuar para o calendário ----------
     if ($acao === 'continuar') {
         $escolhidos = array_values(array_unique(array_map('intval', (array)($_POST['pacientes'] ?? []))));
         $contacto = [
@@ -124,7 +117,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'telemovel' => preg_replace('/\s+/', '', trim((string)($_POST['contacto_telemovel'] ?? ''))),
         ];
 
-        // só podem ser pacientes que este utilizador pode marcar
         foreach ($escolhidos as $pid) {
             if (!in_array($pid, $idsAutorizados, true)) {
                 $errosCont[] = 'Há pacientes escolhidos que não podes marcar.';
@@ -145,7 +137,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($errosCont === []) {
-            // Se tirou alguém, larga o horário que tinha reservado para essa pessoa
             $prefixo = prefixo_reserva();
             $horarios = $_SESSION['marcacao']['horarios'] ?? [];
             foreach (array_keys($horarios) as $pidAntigo) {
@@ -161,7 +152,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Por defeito, a própria pessoa vem marcada
 if ($escolhidos === [] && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     foreach ($autorizados as $a) {
         if ($a['relacao'] === 'proprio') { $escolhidos[] = (int)$a['id']; }
@@ -175,84 +165,92 @@ require __DIR__ . '/includes/cabecalho.php';
 echo estilos_marcacao();
 ?>
 
-<?= passos_marcacao(1) ?>
+<div class="dash-root">
 
-<h1>Quem vai à consulta?</h1>
-<p>Marcação com <strong><?= e($dentista['nome_completo']) ?></strong>
-   (<a href="dentistas.php?modo=marcar">mudar de dentista</a>).</p>
-
-<form method="post" action="marcar-pacientes.php" novalidate>
-    <?= csrf_campo() ?>
-    <input type="hidden" name="acao" value="continuar">
-
-    <?php foreach ($errosCont as $erro): ?>
-        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-    <?php endforeach; ?>
-
-    <fieldset class="campo">
-        <legend>Pessoas incluídas na marcação (até <?= MAX_PACIENTES ?>)</legend>
-        <div class="checks">
-            <?php foreach ($autorizados as $a): ?>
-                <label class="check">
-                    <input type="checkbox" name="pacientes[]" value="<?= (int)$a['id'] ?>"
-                           <?= in_array((int)$a['id'], $escolhidos, true) ? 'checked' : '' ?>>
-                    <?= e($a['nome_completo']) ?> <span class="ajuda">(<?= e($etiquetas[$a['relacao']] ?? '') ?>)</span>
-                </label>
-            <?php endforeach; ?>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Marcação · Passo 1</span>
+            <h1>Quem vai à consulta?</h1>
+            <p>Marcação com <strong><?= e($dentista['nome_completo']) ?></strong> · <a href="dentistas.php?modo=marcar">mudar de dentista</a>.</p>
         </div>
-    </fieldset>
+    </div>
 
-    <fieldset class="campo">
-        <legend>Contacto para esta marcação</legend>
-        <div class="campo">
-            <label for="contacto_nome">Nome <span class="obrigatorio" aria-hidden="true">*</span></label>
-            <input type="text" id="contacto_nome" name="contacto_nome" required maxlength="150"
-                   value="<?= e($contacto['nome']) ?>">
-        </div>
-        <div class="campo">
-            <label for="contacto_telemovel">Telemóvel <span class="obrigatorio" aria-hidden="true">*</span></label>
-            <input type="tel" id="contacto_telemovel" name="contacto_telemovel" required maxlength="20"
-                   value="<?= e($contacto['telemovel']) ?>">
-        </div>
-    </fieldset>
-
-    <button type="submit" class="botao">Continuar para o horário →</button>
-</form>
-
-<section class="cartao seccao">
-    <h2>Adicionar um familiar</h2>
-    <p class="ajuda">Só pedimos o que é preciso para a marcação. Podes juntar filhos, pais, cônjuge ou outra pessoa.</p>
-
-    <?php foreach ($errosFam as $erro): ?>
-        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-    <?php endforeach; ?>
+    <?= passos_marcacao(1) ?>
 
     <form method="post" action="marcar-pacientes.php" novalidate>
         <?= csrf_campo() ?>
-        <input type="hidden" name="acao" value="adicionar_familiar">
+        <input type="hidden" name="acao" value="continuar">
 
-        <div class="campo">
-            <label for="nome">Nome completo <span class="obrigatorio" aria-hidden="true">*</span></label>
-            <input type="text" id="nome" name="nome" required maxlength="150" value="<?= e($formFam['nome']) ?>">
-        </div>
-        <div class="campo">
-            <label for="nascimento">Data de nascimento <span class="obrigatorio" aria-hidden="true">*</span></label>
-            <input type="date" id="nascimento" name="nascimento" required max="<?= e(date('Y-m-d')) ?>" value="<?= e($formFam['nascimento']) ?>">
-        </div>
-        <div class="campo">
-            <label for="relacao">Relação contigo <span class="obrigatorio" aria-hidden="true">*</span></label>
-            <select id="relacao" name="relacao">
-                <?php foreach (['filho' => 'Filho/a', 'pai_mae' => 'Pai/Mãe', 'conjuge' => 'Cônjuge', 'outro' => 'Outro'] as $v => $r): ?>
-                    <option value="<?= e($v) ?>" <?= $formFam['relacao'] === $v ? 'selected' : '' ?>><?= e($r) ?></option>
+        <?php foreach ($errosCont as $erro): ?>
+            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+        <?php endforeach; ?>
+
+        <fieldset class="campo">
+            <legend>Pessoas incluídas na marcação (até <?= MAX_PACIENTES ?>)</legend>
+            <div class="checks">
+                <?php foreach ($autorizados as $a): ?>
+                    <label class="check">
+                        <input type="checkbox" name="pacientes[]" value="<?= (int)$a['id'] ?>"
+                               <?= in_array((int)$a['id'], $escolhidos, true) ? 'checked' : '' ?>>
+                        <?= e($a['nome_completo']) ?> <span class="ajuda">(<?= e($etiquetas[$a['relacao']] ?? '') ?>)</span>
+                    </label>
                 <?php endforeach; ?>
-            </select>
-        </div>
-        <div class="campo">
-            <label for="telemovel">Telemóvel (opcional)</label>
-            <input type="tel" id="telemovel" name="telemovel" maxlength="20" value="<?= e($formFam['telemovel']) ?>">
-        </div>
-        <button type="submit" class="botao botao-secundario">Adicionar familiar</button>
+            </div>
+        </fieldset>
+
+        <fieldset class="campo">
+            <legend>Contacto para esta marcação</legend>
+            <div class="campo">
+                <label for="contacto_nome">Nome <span class="obrigatorio" aria-hidden="true">*</span></label>
+                <input type="text" id="contacto_nome" name="contacto_nome" required maxlength="150"
+                       value="<?= e($contacto['nome']) ?>">
+            </div>
+            <div class="campo">
+                <label for="contacto_telemovel">Telemóvel <span class="obrigatorio" aria-hidden="true">*</span></label>
+                <input type="tel" id="contacto_telemovel" name="contacto_telemovel" required maxlength="20"
+                       value="<?= e($contacto['telemovel']) ?>">
+            </div>
+        </fieldset>
+
+        <button type="submit" class="botao">Continuar para o horário →</button>
     </form>
-</section>
+
+    <section class="cartao seccao">
+        <h2>Adicionar um familiar</h2>
+        <p class="ajuda">Só pedimos o que é preciso para a marcação. Podes juntar filhos, pais, cônjuge ou outra pessoa.</p>
+
+        <?php foreach ($errosFam as $erro): ?>
+            <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+        <?php endforeach; ?>
+
+        <form method="post" action="marcar-pacientes.php" novalidate>
+            <?= csrf_campo() ?>
+            <input type="hidden" name="acao" value="adicionar_familiar">
+
+            <div class="campo">
+                <label for="nome">Nome completo <span class="obrigatorio" aria-hidden="true">*</span></label>
+                <input type="text" id="nome" name="nome" required maxlength="150" value="<?= e($formFam['nome']) ?>">
+            </div>
+            <div class="campo">
+                <label for="nascimento">Data de nascimento <span class="obrigatorio" aria-hidden="true">*</span></label>
+                <input type="date" id="nascimento" name="nascimento" required max="<?= e(date('Y-m-d')) ?>" value="<?= e($formFam['nascimento']) ?>">
+            </div>
+            <div class="campo">
+                <label for="relacao">Relação contigo <span class="obrigatorio" aria-hidden="true">*</span></label>
+                <select id="relacao" name="relacao">
+                    <?php foreach (['filho' => 'Filho/a', 'pai_mae' => 'Pai/Mãe', 'conjuge' => 'Cônjuge', 'outro' => 'Outro'] as $v => $r): ?>
+                        <option value="<?= e($v) ?>" <?= $formFam['relacao'] === $v ? 'selected' : '' ?>><?= e($r) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="campo">
+                <label for="telemovel">Telemóvel (opcional)</label>
+                <input type="tel" id="telemovel" name="telemovel" maxlength="20" value="<?= e($formFam['telemovel']) ?>">
+            </div>
+            <button type="submit" class="botao botao-secundario">Adicionar familiar</button>
+        </form>
+    </section>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

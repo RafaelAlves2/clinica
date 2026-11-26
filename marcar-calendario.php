@@ -14,12 +14,11 @@ $avisos    = $c['avisos'];
 $temHorarioProprio = $c['dentista_tem_horario'];
 
 $duracaoProvisoria = DURACAO_PADRAO_MIN;
+$blocoAgendaMin = config_valor($pdo, 'bloco_agenda_min', 30);
 
-// ---------- Datas permitidas ----------
 $hoje   = utc(agora_bd($pdo)->format('Y-m-d') . ' 00:00:00');
 $maxDia = $hoje->modify('+' . DIAS_ANTECEDENCIA_MAX . ' days');
 
-// Dia a mostrar
 function ler_dia(string $texto, DateTimeImmutable $hoje, DateTimeImmutable $maxDia): ?DateTimeImmutable
 {
     $d = DateTimeImmutable::createFromFormat('!Y-m-d', $texto, new DateTimeZone('UTC'));
@@ -32,11 +31,9 @@ if ($diaEscolhido === null) {
     $diaEscolhido = proxima_data_livre($pdo, (int)$dentista['id'], $hoje, $prefixo) ?? $hoje;
 }
 
-// Estado da página
 $erros = [];
 $horariosAtuais = $_SESSION['marcacao']['horarios'] ?? [];
 
-// ---------- POST: guardar horários e avançar ----------
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_validar();
 
@@ -95,10 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// ---------- Slots disponíveis no dia escolhido ----------
 $slots = slots_do_dia($pdo, (int)$dentista['id'], $diaEscolhido, $prefixo);
 
-// Para cada paciente, calcular as horas de início possíveis
 $opcoesPorPaciente = [];
 foreach ($pacientes as $p) {
     $pid = (int)$p['id'];
@@ -110,6 +105,8 @@ foreach ($pacientes as $p) {
             $opcoes[] = [
                 'inicio' => $s['inicio'],
                 'texto'  => $s['hora'] . ' – ' . $fimDT->format('H:i'),
+                'hora'   => $s['hora'],
+                'fim'    => $fimDT->format('H:i'),
             ];
         }
     }
@@ -132,104 +129,154 @@ require __DIR__ . '/includes/cabecalho.php';
 echo estilos_marcacao();
 ?>
 
-<?= passos_marcacao(2) ?>
+<div class="dash-root">
 
-<h1>Escolher horário</h1>
-<p>Marcação com <strong><?= e($dentista['nome_completo']) ?></strong>
-   · <?= e(data_extenso($diaEscolhido)) ?></p>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Marcação · Passo 2</span>
+            <h1>Escolher horário</h1>
+            <p>Marcação com <strong><?= e($dentista['nome_completo']) ?></strong> · <?= e(data_extenso($diaEscolhido)) ?></p>
+        </div>
+    </div>
 
-<?php if (!$temHorarioProprio): ?>
-    <div class="alerta alerta-info" role="status">
-        <strong>Nota:</strong> está a ser usado o horário geral da clínica para este profissional.
-        <?php if (in_array($u['papel'] ?? '', ['admin','rececao'], true)): ?>
-            Pode configurar o horário em <a href="admin/horarios.php?alvo=<?= (int)$dentista['id'] ?>">Horários</a>.
+    <?= passos_marcacao(2) ?>
+
+    <?php if (!$temHorarioProprio): ?>
+        <div class="alerta alerta-info" role="status">
+            <strong>Nota:</strong> está a ser usado o horário geral da clínica para este profissional.
+            <?php if (in_array($u['papel'] ?? '', ['admin','rececao'], true)): ?>
+                Pode configurar o horário em <a href="admin/horarios.php?alvo=<?= (int)$dentista['id'] ?>">Horários</a>.
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php foreach ($avisos as $aviso): ?>
+        <div class="alerta alerta-info" role="status"><?= e($aviso) ?></div>
+    <?php endforeach; ?>
+    <?php foreach ($erros as $erro): ?>
+        <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
+    <?php endforeach; ?>
+
+    <div class="navdia">
+        <?php if ($anterior >= $hoje): ?>
+            <a class="botao botao-secundario" href="marcar-calendario.php?data=<?= e($anterior->format('Y-m-d')) ?>">← Dia anterior</a>
+        <?php endif; ?>
+        <form method="get" action="marcar-calendario.php">
+            <label for="data">Ir para</label>
+            <input type="date" id="data" name="data" value="<?= e($diaEscolhido->format('Y-m-d')) ?>"
+                   min="<?= e($hoje->format('Y-m-d')) ?>" max="<?= e($maxDia->format('Y-m-d')) ?>">
+            <button type="submit" class="botao">Ver</button>
+        </form>
+        <?php if ($seguinte <= $maxDia): ?>
+            <a class="botao botao-secundario" href="marcar-calendario.php?data=<?= e($seguinte->format('Y-m-d')) ?>">Dia seguinte →</a>
         <?php endif; ?>
     </div>
-<?php endif; ?>
 
-<?php foreach ($avisos as $aviso): ?>
-    <div class="alerta alerta-info" role="status"><?= e($aviso) ?></div>
-<?php endforeach; ?>
-<?php foreach ($erros as $erro): ?>
-    <div class="alerta alerta-erro" role="alert"><?= e($erro) ?></div>
-<?php endforeach; ?>
-
-<div class="navdia" style="margin-bottom:1rem;">
-    <?php if ($anterior >= $hoje): ?>
-        <a class="botao botao-secundario" href="marcar-calendario.php?data=<?= e($anterior->format('Y-m-d')) ?>">← Dia anterior</a>
-    <?php endif; ?>
-    <?php if ($seguinte <= $maxDia): ?>
-        <a class="botao botao-secundario" href="marcar-calendario.php?data=<?= e($seguinte->format('Y-m-d')) ?>">Dia seguinte →</a>
-    <?php endif; ?>
-    <form method="get" action="marcar-calendario.php" class="navdia">
-        <label for="data">Ir para</label>
-        <input type="date" id="data" name="data" value="<?= e($diaEscolhido->format('Y-m-d')) ?>"
-               min="<?= e($hoje->format('Y-m-d')) ?>" max="<?= e($maxDia->format('Y-m-d')) ?>">
-        <button type="submit" class="botao">Ver</button>
-    </form>
-</div>
-
-<ul class="legenda" aria-label="Legenda">
-    <?php foreach ($rotulos as $estado => [$simbolo, $texto]): ?>
-        <li class="bloco bloco-<?= e($estado) ?>"><?= e($simbolo . ' ' . $texto) ?></li>
-    <?php endforeach; ?>
-</ul>
-
-<?php if (!$slots): ?>
-    <div class="alerta alerta-info">A clínica está fechada neste dia.</div>
-<?php else: ?>
-    <ul class="calendario" aria-label="Horários de <?= e(data_extenso($diaEscolhido)) ?>" style="list-style:none;padding:0;">
-        <?php foreach ($slots as $s): [$simbolo, $texto] = $rotulos[$s['estado']]; ?>
-            <li class="bloco bloco-<?= e($s['estado']) ?>">
-                <strong><?= e($s['hora']) ?></strong>
-                <?= e($simbolo . ' ' . $texto) ?>
-            </li>
+    <ul class="legenda" aria-label="Legenda">
+        <?php foreach ($rotulos as $estado => [$simbolo, $texto]): ?>
+            <li class="bloco bloco-<?= e($estado) ?>"><?= e($simbolo . ' ' . $texto) ?></li>
         <?php endforeach; ?>
     </ul>
-<?php endif; ?>
 
-<?php
-$haOpcoes = true;
-foreach ($pacientes as $p) {
-    if (empty($opcoesPorPaciente[(int)$p['id']])) { $haOpcoes = false; break; }
-}
-?>
-
-<?php if ($haOpcoes): ?>
-    <section class="cartao seccao">
-        <h2>Escolher hora para cada pessoa</h2>
-        <p class="ajuda">
-            Duração provisória: <?= e(formatar_duracao($duracaoProvisoria)) ?>.
-            Podes ajustar depois de escolher os tratamentos.
-        </p>
-
-        <form method="post" action="marcar-calendario.php" novalidate>
-            <?= csrf_campo() ?>
-
-            <?php foreach ($pacientes as $p): $pid = (int)$p['id']; ?>
-                <div class="campo">
-                    <label for="h-<?= $pid ?>"><?= e($p['nome_completo']) ?></label>
-                    <select id="h-<?= $pid ?>" name="horarios[<?= $pid ?>]" required>
-                        <option value="">— escolher —</option>
-                        <?php foreach ($opcoesPorPaciente[$pid] as $o): ?>
-                            <option value="<?= e($o['inicio']) ?>"
-                                <?= (($horariosAtuais[$pid]['inicio'] ?? '') === $o['inicio']) ? 'selected' : '' ?>>
-                                <?= e($o['texto']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+    <?php if (!$slots): ?>
+        <div class="alerta alerta-info">A clínica está fechada neste dia.</div>
+    <?php else: ?>
+        <?php
+        $contagemSlots = array_count_values(array_column($slots, 'estado'));
+        $livres = (int)($contagemSlots['livre'] ?? 0);
+        $ocupados = (int)($contagemSlots['ocupado'] ?? 0);
+        $reservados = (int)($contagemSlots['reservado_outro'] ?? 0);
+        ?>
+        <div class="agenda-titulo">
+            <div>
+                <h2>Disponibilidade do dia</h2>
+                <p class="ajuda">Cada bloco representa <?= (int)$blocoAgendaMin ?> minutos da agenda.</p>
+            </div>
+        </div>
+        <div class="agenda-resumo" aria-label="Resumo dos blocos de agenda">
+            <span><strong><?= $livres ?></strong> livres</span>
+            <span><strong><?= $ocupados ?></strong> ocupados</span>
+            <span><strong><?= $reservados ?></strong> reservados</span>
+        </div>
+        <ul class="calendario" aria-label="Disponibilidade de <?= e(data_extenso($diaEscolhido)) ?>">
+            <?php foreach ($slots as $s): [$simbolo, $texto] = $rotulos[$s['estado']]; ?>
+                <li class="bloco bloco-<?= e($s['estado']) ?>">
+                    <strong><?= e($s['hora']) ?></strong>
+                    <span><?= e($simbolo . ' ' . $texto) ?></span>
+                </li>
             <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
 
-            <a class="botao botao-secundario" href="marcar-pacientes.php">← Pacientes</a>
-            <button type="submit" class="botao">Continuar para tratamentos →</button>
-        </form>
-    </section>
-<?php elseif ($slots): ?>
-    <div class="alerta alerta-info">
-        Não há horas livres neste dia para uma consulta de <?= e(formatar_duracao($duracaoProvisoria)) ?> em todos os pacientes.
-        Escolhe outro dia na navegação acima.
-    </div>
-<?php endif; ?>
+    <?php
+    $haOpcoes = true;
+    foreach ($pacientes as $p) {
+        if (empty($opcoesPorPaciente[(int)$p['id']])) { $haOpcoes = false; break; }
+    }
+    ?>
+
+    <?php if ($haOpcoes): ?>
+        <section class="cartao seccao">
+            <h2>Escolher hora para cada pessoa</h2>
+            <p class="ajuda">
+                Duração provisória: <?= e(formatar_duracao($duracaoProvisoria)) ?>.
+                Podes ajustar depois de escolher os tratamentos.
+            </p>
+
+            <form method="post" action="marcar-calendario.php" novalidate>
+                <?= csrf_campo() ?>
+
+                <?php foreach ($pacientes as $p): $pid = (int)$p['id']; ?>
+                    <?php
+                    $opcoesPessoa = $opcoesPorPaciente[$pid];
+                    $opcoesPorPeriodo = ['Manhã' => [], 'Tarde' => [], 'Final do dia' => []];
+                    foreach ($opcoesPessoa as $opcao) {
+                        $horaOpcao = (int)substr($opcao['inicio'], 11, 2);
+                        $periodo = $horaOpcao < 12 ? 'Manhã' : ($horaOpcao < 18 ? 'Tarde' : 'Final do dia');
+                        $opcoesPorPeriodo[$periodo][] = $opcao;
+                    }
+                    $selecionado = (string)($_POST['horarios'][$pid] ?? ($horariosAtuais[$pid]['inicio'] ?? ''));
+                    ?>
+                    <fieldset class="horario-pessoa">
+                        <legend><?= e($p['nome_completo']) ?></legend>
+                        <p class="horario-pessoa-ajuda">
+                            <?= count($opcoesPessoa) ?> horários disponíveis. Seleciona a hora de início.
+                        </p>
+                        <?php foreach ($opcoesPorPeriodo as $nomePeriodo => $opcoesPeriodo): ?>
+                            <?php if ($opcoesPeriodo): ?>
+                                <div class="horario-grupo">
+                                    <h3><?= e($nomePeriodo) ?></h3>
+                                    <div class="horario-opcoes">
+                                        <?php foreach ($opcoesPeriodo as $o): ?>
+                                            <label class="horario-opcao">
+                                                <input type="radio" name="horarios[<?= $pid ?>]" value="<?= e($o['inicio']) ?>"
+                                                    <?= $selecionado === $o['inicio'] ? 'checked' : '' ?> required>
+                                                <span class="horario-opcao-conteudo">
+                                                    <strong><?= e($o['hora']) ?></strong>
+                                                    <small>Termina às <?= e($o['fim']) ?></small>
+                                                </span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </fieldset>
+                <?php endforeach; ?>
+
+                <div class="horario-acoes">
+                    <a class="botao botao-secundario" href="marcar-pacientes.php">← Pacientes</a>
+                    <button type="submit" class="botao">Continuar para tratamentos →</button>
+                </div>
+            </form>
+        </section>
+    <?php elseif ($slots): ?>
+        <div class="alerta alerta-info">
+            Não há horas livres neste dia para uma consulta de <?= e(formatar_duracao($duracaoProvisoria)) ?> em todos os pacientes.
+            Escolhe outro dia na navegação acima.
+        </div>
+    <?php endif; ?>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

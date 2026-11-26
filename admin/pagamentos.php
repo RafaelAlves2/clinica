@@ -99,17 +99,45 @@ $st = $pdo->prepare($sql);
 $st->execute($params);
 $pagamentos = $st->fetchAll();
 
-// Totais/resumos
-$totalRecebido = 0.0; $totalPendente = 0.0; $totalReembolsado = 0.0; $totalFalhado = 0.0;
+// Os cartões e totais são calculados sobre TODO o resultado filtrado.
+// A tabela visual mostra apenas os 600 movimentos mais recentes.
+$sqlBase = ' FROM pagamentos p
+          JOIN marcacoes m ON m.id = p.marcacao_id
+          JOIN utilizadores u ON u.id = m.utilizador_id
+          LEFT JOIN utilizadores staff ON staff.id = p.registado_por';
+$whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+
+$st = $pdo->prepare('SELECT COUNT(*)' . $sqlBase . $whereSql);
+$st->execute($params);
+$totalRegistosFiltro = (int)$st->fetchColumn();
+
+$st = $pdo->prepare(
+    "SELECT
+        COALESCE(SUM(CASE WHEN p.estado IN ('pago','parcialmente_reembolsado','reembolsado') THEN GREATEST(0,p.valor-p.valor_reembolsado) ELSE 0 END),0) recebido,
+        COALESCE(SUM(CASE WHEN p.estado IN ('pendente','em_processamento','parcialmente_pago') THEN p.valor ELSE 0 END),0) pendente,
+        COALESCE(SUM(p.valor_reembolsado),0) reembolsado,
+        COALESCE(SUM(CASE WHEN p.estado IN ('recusado','falhado') THEN p.valor ELSE 0 END),0) falhado"
+    . $sqlBase . $whereSql
+);
+$st->execute($params);
+$totaisFiltro = $st->fetch() ?: [];
+$totalRecebido = round((float)($totaisFiltro['recebido'] ?? 0), 2);
+$totalPendente = round((float)($totaisFiltro['pendente'] ?? 0), 2);
+$totalReembolsado = round((float)($totaisFiltro['reembolsado'] ?? 0), 2);
+$totalFalhado = round((float)($totaisFiltro['falhado'] ?? 0), 2);
+
+$st = $pdo->prepare(
+    "SELECT p.metodo, p.metodo_detalhe,
+            COALESCE(SUM(CASE WHEN p.estado IN ('pago','parcialmente_reembolsado','reembolsado') THEN GREATEST(0,p.valor-p.valor_reembolsado) ELSE 0 END),0) recebido
+       " . $sqlBase . $whereSql . "
+      GROUP BY p.metodo, p.metodo_detalhe
+      ORDER BY recebido DESC"
+);
+$st->execute($params);
 $porMetodo = [];
-foreach ($pagamentos as $p) {
-    $liq = max(0.0, (float)$p['valor'] - (float)$p['valor_reembolsado']);
-    if (in_array($p['estado'], ['pago','parcialmente_reembolsado','reembolsado'], true)) { $totalRecebido += $liq; }
-    if ((float)$p['valor_reembolsado'] > 0) { $totalReembolsado += (float)$p['valor_reembolsado']; }
-    if (in_array($p['estado'], ['pendente','em_processamento','parcialmente_pago'], true)) { $totalPendente += (float)$p['valor']; }
-    if (in_array($p['estado'], ['recusado','falhado'], true)) { $totalFalhado += (float)$p['valor']; }
-    $mk = pagamento_metodo_legivel($p['metodo'], $p['metodo_detalhe'] ?? null);
-    $porMetodo[$mk] = ($porMetodo[$mk] ?? 0) + ($liq > 0 ? $liq : 0);
+foreach ($st->fetchAll() as $linha) {
+    $mk = pagamento_metodo_legivel($linha['metodo'], $linha['metodo_detalhe'] ?? null);
+    $porMetodo[$mk] = (float)$linha['recebido'];
 }
 arsort($porMetodo);
 
@@ -149,6 +177,10 @@ echo estilos_gestao();
     <div class="campo"><button type="submit" class="botao">Filtrar</button></div>
 </form>
 
+<?php if ($totalRegistosFiltro > count($pagamentos)): ?>
+    <p class="ajuda">A mostrar os <?= count($pagamentos) ?> movimentos mais recentes de <?= $totalRegistosFiltro ?>. Os totais acima incluem todos os movimentos que correspondem aos filtros.</p>
+<?php endif; ?>
+
 <?php if ($detalhe): ?>
 <section class="cartao seccao" id="detalhe">
     <h2>Detalhe do pagamento #<?= (int)$detalhe['id'] ?></h2>
@@ -165,6 +197,35 @@ echo estilos_gestao();
         <dt>Registado por</dt><dd><?= e($detalhe['registado_por_nome'] ?? '— (automático/cliente)') ?></dd>
         <dt>Observações</dt><dd><?= $detalhe['observacoes'] ? nl2br(e($detalhe['observacoes'])) : '—' ?></dd>
     </dl>
+    <?php
+    $st = $pdo->prepare(
+        'SELECT pr.*, staff.nome_completo AS registado_por_nome
+           FROM pagamentos_reembolsos pr
+           LEFT JOIN utilizadores staff ON staff.id = pr.registado_por
+          WHERE pr.pagamento_id = ?
+          ORDER BY pr.reembolsado_em DESC, pr.id DESC'
+    );
+    $st->execute([(int)$detalhe['id']]);
+    $movimentosReembolso = $st->fetchAll();
+    ?>
+    <h3>Histórico de reembolsos</h3>
+    <?php if (!$movimentosReembolso): ?>
+        <p class="ajuda">Ainda não existem movimentos de reembolso registados.</p>
+    <?php else: ?>
+        <div class="tabela-scroll"><table class="tabela">
+            <thead><tr><th>Data</th><th>Origem</th><th>Valor</th><th>Responsável / motivo</th></tr></thead>
+            <tbody>
+            <?php foreach ($movimentosReembolso as $mov): ?>
+                <tr>
+                    <td><?= e((new DateTime($mov['reembolsado_em']))->format('d/m/Y H:i')) ?></td>
+                    <td><?= e(match ($mov['origem']) { 'gateway' => 'Stripe', 'historico' => 'Histórico importado', default => 'Registo administrativo' }) ?></td>
+                    <td><?= e(formatar_preco($mov['valor'])) ?></td>
+                    <td><?= e(trim((string)($mov['registado_por_nome'] ?? '') . ' ' . (string)($mov['motivo'] ?? '')) ?: '—') ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table></div>
+    <?php endif; ?>
     <?php if ($detalheMarcacaoFin): ?>
         <p class="ajuda">Estado financeiro da marcação: total <?= e(formatar_preco($detalheMarcacaoFin['total'])) ?> · pago <?= e(formatar_preco($detalheMarcacaoFin['pago'])) ?> · dívida <?= e(formatar_preco($detalheMarcacaoFin['divida'])) ?> (<?= e($detalheMarcacaoFin['estado_financeiro']) ?>).</p>
     <?php endif; ?>

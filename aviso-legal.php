@@ -8,8 +8,27 @@ $tituloPagina = conteudo('legal_titulo', 'Aviso legal');
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('legal_titulo', 'Aviso legal')) ?></h1>
-<?php $intro = trim(conteudo('legal_intro', '')); if ($intro !== ''): ?><p><?= nl2br(e($intro)) ?></p><?php endif; ?>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">Legal</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>ERS · OMD</span>
+        </div>
+        <span class="interior-hero-aside"><?= e(clinica_dado($pdo, 'clinica_ers', CLINICA_ERS)) ?></span>
+    </div>
+    <h1><?= e(conteudo('legal_titulo', 'Aviso legal')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Identificação do prestador, natureza da informação e publicidade em saúde.
+        </p>
+        <span>Informação obrigatória ↓</span>
+    </div>
+</section>
+
+<?php $intro = trim(conteudo('legal_intro', '')); if ($intro !== ''): ?>
+    <p><?= nl2br(e($intro)) ?></p>
+<?php endif; ?>
 
 <section class="cartao seccao">
     <h2>Identificação do prestador</h2>

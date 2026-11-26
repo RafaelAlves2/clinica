@@ -79,11 +79,6 @@ $filtroEsp  = filter_input(INPUT_GET, 'especialidade', FILTER_VALIDATE_INT) ?: 0
 $filtroTrat = filter_input(INPUT_GET, 'tratamento',    FILTER_VALIDATE_INT) ?: 0;
 $modoMarcar = ($_GET['modo'] ?? '') === 'marcar';
 
-// BUGFIX: a lista hardcoded ESPECIALIDADES_OMD filtrava o dropdown, mas os
-// cartões e o perfil mostram TODAS as especialidades via GROUP_CONCAT.
-// Resultado: uma especialidade nova (ex.: Implantologia) aparecia no cartão
-// do dentista mas não era filtrável. Agora o dropdown reflete todas as
-// especialidades ativas na BD (consistente com o que é mostrado).
 $especialidades = $pdo->query('SELECT id, nome FROM especialidades WHERE ativo = 1 ORDER BY nome')->fetchAll();
 $tratamentos    = $pdo->query('SELECT id, nome FROM tratamentos    WHERE ativo = 1 ORDER BY nome')->fetchAll();
 
@@ -130,12 +125,24 @@ $tituloPagina = 'A nossa equipa';
 require __DIR__ . '/includes/cabecalho.php';
 ?>
 
-<h1><?= e(conteudo('equipa_titulo', 'A nossa equipa')) ?></h1>
-<p class="ajuda">
-    Conhece os médicos dentistas da clínica. Todos os profissionais estão
-    inscritos na Ordem dos Médicos Dentistas (OMD) e identificados pela
-    respetiva cédula profissional.
-</p>
+<section class="interior-hero">
+    <div class="interior-hero-top">
+        <div class="interior-hero-kicker">
+            <span class="kicker-num">02 / 2026</span>
+            <span class="kicker-line" aria-hidden="true"></span>
+            <span>Quem cuida de ti</span>
+        </div>
+        <span class="interior-hero-aside">Equipa clínica</span>
+    </div>
+    <h1><?= e(conteudo('equipa_titulo', 'A nossa equipa')) ?><span class="ponto">.</span></h1>
+    <div class="interior-hero-bottom">
+        <p>
+            Todos os profissionais estão inscritos na Ordem dos Médicos Dentistas (OMD)
+            e identificados pela respetiva cédula profissional.
+        </p>
+        <span><?= count($dentistas) ?> profissional<?= count($dentistas) === 1 ? '' : 'is' ?> ↓</span>
+    </div>
+</section>
 
 <form method="get" action="dentistas.php" class="filtros">
     <?php if ($modoMarcar): ?>
@@ -146,9 +153,9 @@ require __DIR__ . '/includes/cabecalho.php';
         <label for="especialidade">Especialidade</label>
         <select id="especialidade" name="especialidade">
             <option value="0">Todas</option>
-            <?php foreach ($especialidades as $e): ?>
-                <option value="<?= (int)$e['id'] ?>" <?= $filtroEsp === (int)$e['id'] ? 'selected' : '' ?>>
-                    <?= e($e['nome']) ?>
+            <?php foreach ($especialidades as $esp): ?>
+                <option value="<?= (int)$esp['id'] ?>" <?= $filtroEsp === (int)$esp['id'] ? 'selected' : '' ?>>
+                    <?= e($esp['nome']) ?>
                 </option>
             <?php endforeach; ?>
         </select>

@@ -294,6 +294,8 @@ echo estilos_gestao();
                             <input type="text" id="ob<?= (int)$c['id'] ?>" name="observacoes" maxlength="255" placeholder="Opcional">
                             <button type="submit" class="botao botao-secundario">Registar pagamento</button>
                         </form></details>
+                    <?php endif; ?>
+
                     <?php $podeNotas = (($papel === 'dentista' && $dentistaProprio && (int)$c['dentista_id'] === (int)$dentistaProprio) || $papel === 'admin'); ?>
                     <?php if ($podeNotas): ?>
                         <details style="margin-top:.5rem;width:100%"><summary>Notas clínicas <?= !empty($c['notas_clinicas']) ? '(registadas)' : '' ?></summary>
@@ -307,7 +309,6 @@ echo estilos_gestao();
                                 <button type="submit" class="botao botao-secundario">Guardar notas</button>
                             </form>
                         </details>
-                    <?php endif; ?>
                     <?php endif; ?>
                 </div>
             </article>

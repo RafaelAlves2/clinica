@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/../includes/config.php';
+require __DIR__ . '/../includes/gestao.php';
 
 $u   = exigir_login(['admin']);
 $pdo = db();
@@ -76,6 +77,7 @@ $perguntas = $pdo->query('SELECT id, pergunta, resposta, ordem, visivel FROM per
 
 $tituloPagina = 'Perguntas frequentes';
 require __DIR__ . '/../includes/cabecalho.php';
+echo estilos_gestao();
 ?>
 
 <p><a href="admin/index.php">← Painel</a></p>

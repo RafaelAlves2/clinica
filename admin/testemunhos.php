@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($erros === []) {
-            $novaFoto = null; // BUGFIX (orphan): inicializar antes do try
+            $novaFoto = null;
             try {
                 $novaFoto = processar_foto_testemunho($_FILES['foto'] ?? ['error' => UPLOAD_ERR_NO_FILE]);
                 $antiga   = null;
@@ -131,7 +131,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 apagar_foto_testemunho($novaFoto);
                 $erros[] = $e->getMessage();
             } catch (PDOException $e) {
-                // BUGFIX (orphan): apaga a foto recém-movida se o INSERT/UPDATE falhou
                 apagar_foto_testemunho($novaFoto);
                 error_log('Erro testemunho: ' . $e->getMessage());
                 $erros[] = 'Ocorreu um erro. Tenta novamente.';

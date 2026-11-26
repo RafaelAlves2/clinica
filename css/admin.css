@@ -1,0 +1,674 @@
+/* =====================================================================
+   admin.css — Consola de administração
+   Carregado automaticamente em todas as páginas /admin/ através de
+   includes/cabecalho.php.
+
+   Herda os tokens e a tipografia de estilo.css. Usa o namespace .adm-*
+   para não colidir com os componentes existentes (.cartao, .grelha,
+   .botao, .dash-*).
+   ===================================================================== */
+
+/* ---------- Navegação de contexto ---------- */
+.adm-subnav {
+    border-bottom: 1px solid var(--borda);
+    background: color-mix(in srgb, var(--superficie) 94%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+}
+
+.adm-subnav-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--esp-1);
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 var(--esp-5);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+
+.adm-subnav-inner::-webkit-scrollbar {
+    display: none;
+}
+
+.adm-subnav a {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 0.8rem 0.7rem;
+    border-bottom: 2px solid transparent;
+    color: var(--texto-suave);
+    font-size: 0.82rem;
+    font-weight: 500;
+    line-height: 1.2;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.adm-subnav a:hover,
+.adm-subnav a:focus-visible {
+    color: var(--texto);
+    text-decoration: none;
+}
+
+.adm-subnav a[aria-current="page"] {
+    color: var(--primaria);
+    border-bottom-color: var(--primaria);
+    font-weight: 600;
+}
+
+.adm-subnav-home {
+    font-weight: 600;
+    color: var(--texto);
+}
+
+.adm-subnav-divider {
+    flex-shrink: 0;
+    width: 1px;
+    height: 18px;
+    margin: 0 0.35rem;
+    background: var(--borda);
+}
+
+/* ---------- Cabeçalho de área ---------- */
+.adm-breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0 0 var(--esp-4);
+    color: var(--texto-suave);
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+.adm-breadcrumb a {
+    color: var(--texto-suave);
+    text-decoration: none;
+}
+
+.adm-breadcrumb a:hover {
+    color: var(--primaria);
+    text-decoration: none;
+}
+
+.adm-breadcrumb [aria-current="page"] {
+    color: var(--texto);
+    font-weight: 500;
+}
+
+.adm-page-icon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 58px;
+    height: 58px;
+    border: 1px solid var(--borda);
+    border-radius: 18px;
+    background: var(--primaria-fundo);
+    color: var(--primaria);
+}
+
+/* ---------- Ações pendentes ---------- */
+.adm-pending {
+    margin: 0 0 var(--esp-6);
+    padding: var(--esp-5);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-md);
+    background: var(--superficie);
+    box-shadow: var(--sombra-1);
+}
+
+.adm-pending-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-4);
+}
+
+.adm-pending-head h2 {
+    margin: var(--esp-1) 0 var(--esp-2);
+    font-size: clamp(1.15rem, 2vw, 1.4rem);
+    line-height: 1.25;
+}
+
+.adm-pending-head .ajuda {
+    margin: 0;
+    max-width: 70ch;
+}
+
+.adm-pending-total {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    min-width: 48px;
+    height: 48px;
+    padding: 0 0.65rem;
+    border-radius: var(--raio-pill);
+    background: var(--erro);
+    color: var(--fundo);
+    font-family: var(--fonte-titulo);
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.adm-pending-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--esp-3);
+}
+
+.adm-pending-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    padding: var(--esp-3) var(--esp-4);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-sm);
+    background: var(--superficie-alt);
+    color: var(--texto);
+    text-decoration: none;
+    transition: border-color 0.15s ease, background 0.15s ease,
+                transform 0.15s ease;
+}
+
+.adm-pending-item:hover,
+.adm-pending-item:focus-visible {
+    border-color: var(--primaria);
+    background: var(--superficie);
+    color: var(--texto);
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+
+.adm-pending-item > span {
+    color: var(--texto-suave);
+    font-size: 0.76rem;
+    font-weight: 500;
+    line-height: 1.35;
+}
+
+.adm-pending-item strong {
+    font-family: var(--fonte-titulo);
+    font-size: 1.7rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.adm-pending-item small {
+    color: var(--primaria);
+    font-size: 0.74rem;
+    line-height: 1.3;
+}
+
+.adm-pending-item.is-zero {
+    opacity: 0.62;
+}
+
+.adm-pending-item.is-zero small {
+    color: var(--texto-fraco);
+}
+
+/* ---------- Estado sem pendências ---------- */
+.adm-clear {
+    display: flex;
+    align-items: center;
+    gap: var(--esp-3);
+    margin: 0 0 var(--esp-6);
+    padding: var(--esp-4);
+    border: 1px solid var(--sucesso);
+    border-radius: var(--raio-md);
+    background: var(--sucesso-fundo);
+    color: var(--sucesso);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+.adm-clear-icon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--superficie);
+}
+
+.adm-clear strong {
+    display: block;
+    color: var(--sucesso);
+}
+
+/* ---------- Cartões das áreas de gestão ---------- */
+.adm-section-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--esp-4);
+    margin-bottom: var(--esp-6);
+}
+
+.adm-section-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-3);
+    min-height: 235px;
+    padding: var(--esp-5);
+    overflow: hidden;
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-md);
+    background: var(--superficie);
+    color: var(--texto);
+    text-decoration: none;
+    transition: border-color 0.2s ease, transform 0.2s ease,
+                box-shadow 0.2s ease;
+}
+
+.adm-section-card::after {
+    content: "";
+    position: absolute;
+    right: -55px;
+    bottom: -70px;
+    width: 190px;
+    height: 190px;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        color-mix(in srgb, var(--acento) 26%, transparent) 0%,
+        transparent 68%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.35s ease;
+}
+
+.adm-section-card:hover,
+.adm-section-card:focus-visible {
+    border-color: var(--primaria);
+    color: var(--texto);
+    text-decoration: none;
+    transform: translateY(-4px);
+    box-shadow: var(--sombra-3);
+}
+
+.adm-section-card:hover::after,
+.adm-section-card:focus-visible::after {
+    opacity: 1;
+    transform: scale(1.08);
+}
+
+.adm-section-count {
+    position: absolute;
+    top: var(--esp-4);
+    right: var(--esp-4);
+    color: var(--texto-fraco);
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    font-variant-numeric: tabular-nums;
+}
+
+.adm-section-icon {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    background: var(--primaria-fundo);
+    color: var(--primaria);
+}
+
+.adm-section-card h2 {
+    margin: 0;
+    font-family: var(--fonte-titulo);
+    font-size: 1.28rem;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+}
+
+.adm-section-card p {
+    margin: 0;
+    color: var(--texto-suave);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+.adm-section-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: auto;
+    color: var(--primaria);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.adm-section-action svg {
+    transition: transform 0.2s ease;
+}
+
+.adm-section-card:hover .adm-section-action svg,
+.adm-section-card:focus-visible .adm-section-action svg {
+    transform: translateX(3px);
+}
+
+/* ---------- Grelha de funcionalidades (páginas de área) ---------- */
+.adm-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--esp-4);
+}
+
+.adm-feature-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--esp-2);
+    min-height: 165px;
+    padding: var(--esp-5);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-md);
+    background: var(--superficie);
+    color: var(--texto);
+    text-decoration: none;
+    transition: border-color 0.2s ease, transform 0.2s ease,
+                box-shadow 0.2s ease;
+}
+
+.adm-feature-card:hover,
+.adm-feature-card:focus-visible {
+    border-color: var(--primaria);
+    color: var(--texto);
+    text-decoration: none;
+    transform: translateY(-2px);
+    box-shadow: var(--sombra-2);
+}
+
+.adm-feature-card h2 {
+    margin: 0;
+    font-family: var(--fonte-titulo);
+    font-size: 1.08rem;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+}
+
+.adm-feature-card p {
+    margin: 0;
+    color: var(--texto-suave);
+    font-size: 0.88rem;
+    line-height: 1.55;
+}
+
+.adm-feature-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: auto;
+    padding-top: var(--esp-2);
+    color: var(--primaria);
+    font-size: 0.77rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.adm-feature-action svg {
+    transition: transform 0.2s ease;
+}
+
+.adm-feature-card:hover .adm-feature-action svg,
+.adm-feature-card:focus-visible .adm-feature-action svg {
+    transform: translateX(3px);
+}
+
+/* ---------- Rodapé da área ---------- */
+.adm-hub-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--esp-3);
+    margin-top: var(--esp-6);
+    padding-top: var(--esp-4);
+    border-top: 1px solid var(--borda);
+}
+
+.adm-hub-footer .botao {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.adm-hub-footer .ajuda {
+    margin: 0;
+}
+
+/* ---------- Indicadores secundários ---------- */
+.adm-info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--esp-3);
+    margin-bottom: var(--esp-6);
+}
+
+.adm-info-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: var(--esp-4);
+    border: 1px solid var(--borda);
+    border-radius: var(--raio-sm);
+    background: var(--superficie-alt);
+    color: var(--texto);
+    text-decoration: none;
+    transition: border-color 0.15s ease, background 0.15s ease,
+                transform 0.15s ease;
+}
+
+.adm-info-card:hover,
+.adm-info-card:focus-visible {
+    border-color: var(--primaria);
+    background: var(--superficie);
+    color: var(--texto);
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+
+.adm-info-card > span {
+    color: var(--texto-suave);
+    font-size: 0.76rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.adm-info-card strong {
+    font-family: var(--fonte-titulo);
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+}
+
+.adm-info-card small {
+    color: var(--primaria);
+    font-size: 0.76rem;
+}
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 1100px) {
+    .adm-section-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .adm-pending-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .adm-info-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 800px) {
+    .adm-subnav-inner {
+        padding: 0 var(--esp-4);
+    }
+
+    .adm-subnav a {
+        padding: 0.75rem 0.6rem;
+        font-size: 0.78rem;
+    }
+
+    .adm-page-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 15px;
+    }
+
+    .adm-section-grid,
+    .adm-feature-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .adm-section-card {
+        min-height: 0;
+    }
+
+    .adm-feature-card {
+        min-height: 0;
+    }
+
+    .adm-info-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 560px) {
+    .adm-pending {
+        padding: var(--esp-4);
+    }
+
+    .adm-pending-head {
+        flex-direction: column;
+    }
+
+    .adm-pending-total {
+        align-self: flex-start;
+    }
+
+    .adm-pending-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .adm-hub-footer {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+/* ---------- Movimento reduzido ---------- */
+@media (prefers-reduced-motion: reduce) {
+    .adm-subnav a,
+    .adm-section-card,
+    .adm-section-card::after,
+    .adm-section-action svg,
+    .adm-feature-card,
+    .adm-feature-action svg,
+    .adm-pending-item,
+    .adm-info-card {
+        transition: none !important;
+    }
+
+    .adm-section-card:hover,
+    .adm-section-card:focus-visible,
+    .adm-feature-card:hover,
+    .adm-feature-card:focus-visible,
+    .adm-pending-item:hover,
+    .adm-pending-item:focus-visible,
+    .adm-info-card:hover,
+    .adm-info-card:focus-visible {
+        transform: none;
+    }
+}
+
+/* ---------- Cores forçadas (Windows High Contrast) ---------- */
+@media (forced-colors: active) {
+    .adm-subnav,
+    .adm-pending,
+    .adm-section-card,
+    .adm-feature-card,
+    .adm-pending-item,
+    .adm-info-card,
+    .adm-page-icon,
+    .adm-clear {
+        border: 1px solid CanvasText;
+    }
+
+    .adm-subnav a[aria-current="page"] {
+        border-bottom-color: Highlight;
+        color: Highlight;
+    }
+
+    .adm-pending-total {
+        background: Highlight;
+        color: HighlightText;
+    }
+}
+
+/* =========================================================
+   Refinamento visual — administração
+   Aplicado a todas as páginas da consola.
+   ========================================================= */
+.adm-subnav {
+    border-bottom-color: var(--borda);
+    box-shadow: 0 3px 14px rgba(28,43,47,.035);
+}
+.adm-subnav a { padding-top: .95rem; padding-bottom: .95rem; }
+.adm-subnav a[aria-current="page"] { position: relative; }
+.adm-pending, .adm-clear {
+    border-radius: 18px;
+    box-shadow: 0 8px 28px rgba(28,43,47,.055);
+}
+.adm-pending { padding: clamp(1.25rem,3vw,2rem); }
+.adm-pending-item, .adm-section-card, .adm-feature-card, .adm-info-card {
+    border-radius: 15px;
+    transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.adm-pending-item:hover, .adm-section-card:hover, .adm-feature-card:hover, .adm-info-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--sombra-2);
+}
+.adm-section-card { padding: 1.35rem; }
+.adm-info-card { padding: 1.2rem; }
+.adm-root .cartao, .adm-root .filtros, .adm-root fieldset.campo {
+    border-radius: 15px;
+}
+.adm-root .tabela-scroll {
+    border: 1px solid var(--borda);
+    border-radius: 14px;
+    background: var(--superficie);
+}
+.adm-root .tabela th { padding-top: .9rem; padding-bottom: .9rem; }
+.adm-root .tabela td { padding-top: .85rem; padding-bottom: .85rem; }
+.adm-root .botao, .adm-root button.botao { border-radius: 10px; }
+.adm-root .alerta { border-radius: 12px; }
+.adm-root input, .adm-root select, .adm-root textarea { border-radius: 10px; }
+@media (max-width: 720px) {
+    .adm-subnav-inner { padding-left: 1rem; padding-right: 1rem; }
+    .adm-pending, .adm-clear { border-radius: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .adm-pending-item, .adm-section-card, .adm-feature-card, .adm-info-card { transition: none !important; }
+    .adm-pending-item:hover, .adm-section-card:hover, .adm-feature-card:hover, .adm-info-card:hover { transform: none; }
+}

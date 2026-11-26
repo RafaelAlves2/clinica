@@ -168,13 +168,19 @@ final class GatewayStripe implements GatewayPagamento {
             'amount'                            => (string)$amount,
             'currency'                          => $moeda,
             'automatic_payment_methods[enabled]' => 'true',
-            'automatic_payment_methods[allow_redirects]' => 'never',
             'description'                       => mb_substr('Marcação ' . $ref, 0, 200),
             'metadata[marcacao_id]'             => (string)$marcacaoId,
             'metadata[pagamento_id]'            => (string)$pagamentoId,
             'metadata[referencia]'              => $ref,
             'metadata[tipo]'                    => (string)($ctx['tipo'] ?? 'total'),
         ];
+        $customerId = trim((string)($ctx['customer_id'] ?? ''));
+        if ($customerId !== '') {
+            if (!preg_match('/^cus_[A-Za-z0-9_]+$/', $customerId)) {
+                return ['ok' => false, 'erro' => 'Identificador de cliente Stripe inválido.'];
+            }
+            $params['customer'] = $customerId;
+        }
         $email = trim((string)($ctx['email'] ?? ''));
         if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $params['receipt_email'] = $email;
@@ -256,6 +262,182 @@ final class GatewayStripe implements GatewayPagamento {
             return [];
         }
         return ['marca' => mb_substr($marca, 0, 20), 'ultimos4' => (string)$ultimos4];
+    }
+
+    /** Cria um Customer Stripe associado a uma conta local. */
+    public function criarCliente(array $ctx): array
+    {
+        $utilizadorId = (int)($ctx['utilizador_id'] ?? 0);
+        $email = trim((string)($ctx['email'] ?? ''));
+        $nome = trim((string)($ctx['nome'] ?? ''));
+        if ($utilizadorId <= 0 || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return ['ok' => false, 'erro' => 'Dados da conta incompletos para criar o cliente Stripe.'];
+        }
+
+        $dados = [
+            'email' => $email,
+            'name' => mb_substr($nome !== '' ? $nome : $email, 0, 150),
+            'metadata[utilizador_id]' => (string)$utilizadorId,
+        ];
+        $r = $this->pedidoApi('POST', 'customers', $dados, [
+            'Idempotency-Key: clinica:customer:utilizador:' . $utilizadorId,
+        ]);
+        if (!$r['ok'] || empty($r['json']['id'])) {
+            return ['ok' => false, 'erro' => 'Stripe: ' . ($r['erro'] ?: 'não foi possível criar o perfil de pagamentos.')];
+        }
+        return ['ok' => true, 'customer_id' => (string)$r['json']['id']];
+    }
+
+    public function obterCliente(string $customerId): array
+    {
+        $customerId = trim($customerId);
+        if (!preg_match('/^cus_[A-Za-z0-9_]+$/', $customerId)) {
+            return ['ok' => false, 'erro' => 'Identificador de cliente Stripe inválido.'];
+        }
+        $r = $this->pedidoApi('GET', 'customers/' . rawurlencode($customerId));
+        if (!$r['ok'] || !is_array($r['json'])) {
+            return ['ok' => false, 'erro' => (string)($r['erro'] ?? 'Cliente Stripe indisponível.')];
+        }
+        return ['ok' => true, 'customer' => $r['json']];
+    }
+
+    /** Customer Session para o Payment Element apresentar cartões já guardados. */
+    public function criarCustomerSession(string $customerId): array
+    {
+        $customerId = trim($customerId);
+        if (!preg_match('/^cus_[A-Za-z0-9_]+$/', $customerId)) {
+            return ['ok' => false, 'erro' => 'Identificador de cliente Stripe inválido.'];
+        }
+        $dados = [
+            'customer' => $customerId,
+            'components[payment_element][enabled]' => 'true',
+            'components[payment_element][features][payment_method_redisplay]' => 'enabled',
+            'components[payment_element][features][payment_method_redisplay_limit]' => '10',
+            'components[payment_element][features][payment_method_save]' => 'disabled',
+            'components[payment_element][features][payment_method_remove]' => 'disabled',
+        ];
+        $r = $this->pedidoApi('POST', 'customer_sessions', $dados);
+        if (!$r['ok'] || empty($r['json']['client_secret'])) {
+            return ['ok' => false, 'erro' => 'Stripe: ' . ($r['erro'] ?: 'não foi possível preparar os cartões guardados.')];
+        }
+        return ['ok' => true, 'client_secret' => (string)$r['json']['client_secret']];
+    }
+
+    /** Cria uma intenção de guardar um cartão sem cobrar dinheiro. */
+    public function criarSetupIntent(string $customerId, int $utilizadorId): array
+    {
+        $customerId = trim($customerId);
+        if (!preg_match('/^cus_[A-Za-z0-9_]+$/', $customerId) || $utilizadorId <= 0) {
+            return ['ok' => false, 'erro' => 'Dados inválidos para guardar o cartão.'];
+        }
+        $dados = [
+            'customer' => $customerId,
+            'usage' => 'on_session',
+            'payment_method_types[0]' => 'card',
+            'description' => 'Cartão guardado pelo utilizador ' . $utilizadorId . ' da Clínica Dentária',
+            'metadata[utilizador_id]' => (string)$utilizadorId,
+            'metadata[usage]' => 'on_session',
+        ];
+        $idem = 'clinica:setup:utilizador:' . $utilizadorId . ':' . bin2hex(random_bytes(12));
+        $r = $this->pedidoApi('POST', 'setup_intents', $dados, ['Idempotency-Key: ' . $idem]);
+        if (!$r['ok'] || empty($r['json']['id']) || empty($r['json']['client_secret'])) {
+            return ['ok' => false, 'erro' => 'Stripe: ' . ($r['erro'] ?: 'não foi possível iniciar a validação do cartão.')];
+        }
+        return [
+            'ok' => true,
+            'setup_intent_id' => (string)$r['json']['id'],
+            'client_secret' => (string)$r['json']['client_secret'],
+        ];
+    }
+
+    public function obterSetupIntent(string $setupIntentId): array
+    {
+        $setupIntentId = trim($setupIntentId);
+        if (!preg_match('/^seti_[A-Za-z0-9_]+$/', $setupIntentId)) {
+            return ['ok' => false, 'erro' => 'Identificador de configuração de cartão inválido.'];
+        }
+        $r = $this->pedidoApi('GET', 'setup_intents/' . rawurlencode($setupIntentId));
+        if (!$r['ok'] || !is_array($r['json'])) {
+            return ['ok' => false, 'erro' => (string)($r['erro'] ?? 'Não foi possível validar o cartão.')];
+        }
+        return ['ok' => true, 'setup_intent' => $r['json']];
+    }
+
+    public function cancelarSetupIntent(string $setupIntentId): array
+    {
+        $setupIntentId = trim($setupIntentId);
+        if (!preg_match('/^seti_[A-Za-z0-9_]+$/', $setupIntentId)) {
+            return ['ok' => false, 'erro' => 'Identificador de configuração de cartão inválido.'];
+        }
+        $r = $this->pedidoApi('POST', 'setup_intents/' . rawurlencode($setupIntentId) . '/cancel');
+        if (!$r['ok'] || !is_array($r['json'])) {
+            return ['ok' => false, 'erro' => (string)($r['erro'] ?? 'Não foi possível cancelar a configuração do cartão.')];
+        }
+        return ['ok' => true, 'status' => (string)($r['json']['status'] ?? '')];
+    }
+
+    public function listarCartoes(string $customerId): array
+    {
+        $customerId = trim($customerId);
+        if (!preg_match('/^cus_[A-Za-z0-9_]+$/', $customerId)) {
+            return ['ok' => false, 'cartoes' => [], 'erro' => 'Identificador de cliente Stripe inválido.'];
+        }
+        $r = $this->pedidoApi('GET', 'payment_methods', [
+            'customer' => $customerId,
+            'type' => 'card',
+            'limit' => 100,
+        ]);
+        if (!$r['ok'] || !is_array($r['json'])) {
+            return ['ok' => false, 'cartoes' => [], 'erro' => (string)($r['erro'] ?? 'Não foi possível consultar os cartões.')];
+        }
+        return ['ok' => true, 'cartoes' => is_array($r['json']['data'] ?? null) ? $r['json']['data'] : []];
+    }
+
+    public function permitirReexibirCartao(string $paymentMethodId): array
+    {
+        $paymentMethodId = trim($paymentMethodId);
+        if (!preg_match('/^pm_[A-Za-z0-9_]+$/', $paymentMethodId)) {
+            return ['ok' => false, 'erro' => 'Identificador de cartão inválido.'];
+        }
+        $r = $this->pedidoApi('POST', 'payment_methods/' . rawurlencode($paymentMethodId), [
+            'allow_redisplay' => 'always',
+        ]);
+        if (!$r['ok']) {
+            return ['ok' => false, 'erro' => (string)($r['erro'] ?? 'Não foi possível disponibilizar o cartão para próximos pagamentos.')];
+        }
+        return ['ok' => true];
+    }
+
+    public function removerCartao(string $customerId, string $paymentMethodId): array
+    {
+        $customerId = trim($customerId);
+        $paymentMethodId = trim($paymentMethodId);
+        if (!preg_match('/^cus_[A-Za-z0-9_]+$/', $customerId)
+            || !preg_match('/^pm_[A-Za-z0-9_]+$/', $paymentMethodId)) {
+            return ['ok' => false, 'erro' => 'Identificador de cartão inválido.'];
+        }
+
+        // Confirmar a propriedade do cartão antes de o desassociar.
+        $lista = $this->listarCartoes($customerId);
+        if (empty($lista['ok'])) {
+            return ['ok' => false, 'erro' => (string)($lista['erro'] ?? 'Não foi possível validar a propriedade do cartão.')];
+        }
+        $pertence = false;
+        foreach ($lista['cartoes'] as $cartao) {
+            if (($cartao['id'] ?? '') === $paymentMethodId) {
+                $pertence = true;
+                break;
+            }
+        }
+        if (!$pertence) {
+            return ['ok' => false, 'erro' => 'Esse cartão não pertence a esta conta.'];
+        }
+
+        $r = $this->pedidoApi('POST', 'payment_methods/' . rawurlencode($paymentMethodId) . '/detach');
+        if (!$r['ok']) {
+            return ['ok' => false, 'erro' => (string)($r['erro'] ?? 'Não foi possível remover o cartão.')];
+        }
+        return ['ok' => true];
     }
 
     public function iniciarPagamento(array $ctx): array {
@@ -416,18 +598,21 @@ final class GatewayStripe implements GatewayPagamento {
             $confirmado = false; $estado = 'cancelado';
             $txRef = (string)($obj['id'] ?? $event['id']);
         } elseif ($type === 'charge.refunded') {
+            $refundCents = $obj['amount_refunded'] ?? null;
+            $refundCurrency = mb_strtolower(trim((string)($obj['currency'] ?? $moedaEvento)));
+            $refundSemDecimais = in_array($refundCurrency, ['bif','clp','djf','gnf','jpy','kmf','krw','mga','pyg','rwf','ugx','vnd','vuv','xaf','xof','xpf'], true);
+            $refundAcumulado = is_numeric($refundCents)
+                ? round(((float)$refundCents) / ($refundSemDecimais ? 1 : 100), 2)
+                : null;
             return ['valido' => true, 'evento' => [
                 'gateway' => 'stripe',
                 'idempotency_key' => 'stripe:event:' . $event['id'],
                 'tipo_evento' => $type,
                 'marcacao_id' => $marcacaoId,
                 'pagamento_id' => $pagamentoId ?: null,
-                'confirmado' => false,
-                'estado' => 'em_processamento',
-                'referencia_transacao' => (string)($obj['payment_intent'] ?? $obj['id'] ?? ''),
-                'gateway_metodo' => 'cartao_online',
-                'valor' => $valorEvento,
-                'moeda' => $moedaEvento !== '' ? $moedaEvento : null,
+                'referencia_transacao' => (string)($obj['payment_intent'] ?? ''),
+                'moeda' => $refundCurrency !== '' ? $refundCurrency : null,
+                'valor_reembolsado_acumulado' => $refundAcumulado,
                 'refund' => true,
             ], 'erro' => ''];
         } else {
@@ -465,6 +650,54 @@ function gateway_obter(PDO $pdo): GatewayPagamento {
     if ($g === 'stripe') return new GatewayStripe($pdo);
     if ($g === 'eupago') return new GatewayEupagoScaffold($pdo);
     return new GatewayNaoConfigurado();
+}
+
+/**
+ * Garante que a conta local tem um Customer Stripe no ambiente das chaves
+ * atualmente configuradas. O identificador é o único dado Stripe pessoal
+ * guardado nesta tabela; números e CVC nunca passam pelo servidor da clínica.
+ */
+function gateway_cliente_obter_ou_criar(PDO $pdo, GatewayStripe $gateway, int $utilizadorId): array
+{
+    if ($utilizadorId <= 0) {
+        return ['ok' => false, 'erro' => 'Conta de utilizador inválida.'];
+    }
+
+    $st = $pdo->prepare('SELECT id, nome_completo, email, stripe_customer_id FROM utilizadores WHERE id = ? AND ativo = 1');
+    $st->execute([$utilizadorId]);
+    $u = $st->fetch();
+    if (!$u) {
+        return ['ok' => false, 'erro' => 'Conta de utilizador não encontrada ou inativa.'];
+    }
+
+    $customerId = trim((string)($u['stripe_customer_id'] ?? ''));
+    if ($customerId !== '') {
+        $existente = $gateway->obterCliente($customerId);
+        if (!empty($existente['ok'])) {
+            $metadata = $existente['customer']['metadata'] ?? [];
+            $owner = (int)($metadata['utilizador_id'] ?? 0);
+            if ($owner === $utilizadorId) {
+                return ['ok' => true, 'customer_id' => $customerId];
+            }
+        }
+        // Um ID de teste não existe quando se muda para chaves de produção
+        // (e vice-versa). Nesse caso cria-se um Customer para o ambiente atual.
+    }
+
+    $criado = $gateway->criarCliente([
+        'utilizador_id' => $utilizadorId,
+        'nome' => (string)$u['nome_completo'],
+        'email' => (string)$u['email'],
+    ]);
+    if (empty($criado['ok']) || empty($criado['customer_id'])) {
+        return ['ok' => false, 'erro' => (string)($criado['erro'] ?? 'Não foi possível preparar a conta de pagamentos.')];
+    }
+
+    $novoId = (string)$criado['customer_id'];
+    $pdo->prepare('UPDATE utilizadores SET stripe_customer_id = ? WHERE id = ?')
+        ->execute([$novoId, $utilizadorId]);
+
+    return ['ok' => true, 'customer_id' => $novoId];
 }
 
 /**
@@ -523,8 +756,24 @@ function gateway_stripe_webhook_configurado(PDO $pdo): bool {
  */
 function gateway_pagamento_disponivel(PDO $pdo): bool
 {
-    return gateway_obter($pdo) instanceof GatewayStripe
-        && gateway_stripe_configurado($pdo)
-        && gateway_stripe_publishable_key($pdo) !== ''
-        && gateway_stripe_webhook_configurado($pdo);
+    if (!(gateway_obter($pdo) instanceof GatewayStripe)
+        || !gateway_stripe_configurado($pdo)
+        || !gateway_stripe_webhook_configurado($pdo)) {
+        return false;
+    }
+
+    $secret = getenv('STRIPE_SECRET_KEY');
+    if (!is_string($secret) || trim($secret) === '') {
+        $secret = config_valor_texto($pdo, 'stripe_secret_key', '');
+    }
+    $publishable = gateway_stripe_publishable_key($pdo);
+
+    $modoTeste = str_starts_with($secret, 'sk_test_')
+        && str_starts_with($publishable, 'pk_test_');
+    $modoProducao = str_starts_with($secret, 'sk_live_')
+        && str_starts_with($publishable, 'pk_live_');
+
+    // Evita expor um checkout quando as chaves pública e secreta são de
+    // ambientes diferentes ou não pertencem a um formato Stripe reconhecido.
+    return $modoTeste || $modoProducao;
 }

@@ -2,7 +2,7 @@
 -- ATENÇÃO: esquema base estrutural, sem dados, gerado a partir da BD em 2026-11-18.
 -- Contém DROP TABLE IF EXISTS e destina-se apenas a criar uma base NOVA/vazia.
 -- NÃO executar sobre uma base de dados existente com dados.
--- Para alterações incrementais usar as migrações 001 a 005.
+-- Para alterações incrementais usar as migrações 001 a 008.
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -811,6 +811,7 @@ CREATE TABLE `utilizadores` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `nome_completo` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `email` varchar(190) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `stripe_customer_id` varchar(255) DEFAULT NULL,
   `telemovel` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `password_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `papel` enum('paciente','rececao','dentista','admin') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'paciente',
@@ -822,6 +823,7 @@ CREATE TABLE `utilizadores` (
   `atualizado_em` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_utilizadores_email` (`email`),
+  UNIQUE KEY `uq_utilizadores_stripe_customer` (`stripe_customer_id`),
   KEY `idx_utilizadores_papel` (`papel`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

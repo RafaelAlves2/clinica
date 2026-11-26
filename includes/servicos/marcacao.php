@@ -267,25 +267,64 @@ function estilos_marcacao(): string
 {
     return <<<'HTML'
 <style>
-    .passos { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: 0 0 1.5rem; counter-reset: passo; }
-    .passos li { counter-increment: passo; padding: .35rem .8rem; border: 1px solid var(--borda); border-radius: 999px; font-size: .9rem; color: var(--texto-suave); }
-    .passos li::before { content: counter(passo) ". "; }
-    .passos li.atual { background: var(--destaque); color: var(--destaque-texto); border-color: var(--destaque); font-weight: 700; }
-    .passos li.feito { color: var(--sucesso); border-color: var(--sucesso); }
-    .calendario { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: .5rem; margin: 1rem 0; }
-    .bloco { padding: .5rem; border-radius: 8px; border: 2px solid var(--borda); background: var(--superficie); text-align: center; font-size: .92rem; }
-    .bloco strong { display: block; font-size: 1.05rem; }
-    .bloco-livre { border-color: var(--sucesso); }
-    .bloco-ocupado { background: var(--erro-fundo); border-color: var(--erro); color: var(--erro); }
-    .bloco-indisponivel { background: var(--borda); color: var(--texto-suave); border-style: dashed; }
-    .bloco-reservado_outro { background: var(--info-fundo); border-color: var(--info); color: var(--info); border-style: dotted; }
-    .bloco-reservado_meu { background: var(--destaque); border-color: var(--destaque); color: var(--destaque-texto); }
-    .legenda { display: flex; flex-wrap: wrap; gap: .5rem 1rem; font-size: .9rem; margin: 0; padding: 0; list-style: none; }
-    .legenda .bloco { display: inline-block; padding: .15rem .6rem; text-align: left; }
-    .navdia { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .passos { display:flex; flex-wrap:wrap; gap:.5rem; list-style:none; padding:0; margin:0 0 1.5rem; counter-reset:passo; }
+    .passos li { counter-increment:passo; padding:.4rem .85rem; border:1px solid var(--borda); border-radius:999px; font-size:.9rem; color:var(--texto-suave); background:var(--superficie); }
+    .passos li::before { content:counter(passo) ". "; }
+    .passos li.atual { background:var(--destaque); color:var(--destaque-texto); border-color:var(--destaque); font-weight:700; }
+    .passos li.feito { color:var(--sucesso); border-color:var(--sucesso); }
+
+    .navdia { display:flex; flex-wrap:wrap; gap:.75rem; align-items:center; justify-content:space-between; padding:1rem; margin:1rem 0; border:1px solid var(--borda); border-radius:14px; background:var(--superficie); }
+    .navdia form { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+    .navdia label { font-size:.85rem; font-weight:600; color:var(--texto-suave); }
     .navdia input[type="date"], .campo input[type="date"] {
-        padding: .55rem .7rem; font-size: 1rem; font-family: inherit;
-        border: 1px solid var(--borda); border-radius: 8px; background: var(--fundo); color: var(--texto);
+        padding:.6rem .75rem; font-size:1rem; font-family:inherit;
+        border:1px solid var(--borda); border-radius:9px; background:var(--fundo); color:var(--texto);
+    }
+
+    .legenda { display:flex; flex-wrap:wrap; gap:.5rem .7rem; font-size:.85rem; margin:.8rem 0 0; padding:0; list-style:none; }
+    .legenda .bloco { display:inline-flex; align-items:center; padding:.28rem .7rem; text-align:left; border-radius:999px; border-width:1px; }
+    .calendario { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:.55rem; margin:1rem 0; padding:0; list-style:none; }
+    .bloco { min-width:0; padding:.65rem .55rem; border-radius:11px; border:1.5px solid var(--borda); background:var(--superficie); text-align:center; font-size:.85rem; }
+    .bloco strong { display:block; margin-bottom:.18rem; font-size:1.02rem; font-variant-numeric:tabular-nums; }
+    .bloco span { display:block; line-height:1.35; }
+    .bloco-livre { border-color:var(--sucesso); background:var(--sucesso-fundo, var(--superficie)); }
+    .bloco-ocupado { background:var(--erro-fundo); border-color:var(--erro); color:var(--erro); }
+    .bloco-indisponivel { background:var(--borda); color:var(--texto-suave); border-style:dashed; }
+    .bloco-reservado_outro { background:var(--info-fundo); border-color:var(--info); color:var(--info); border-style:dotted; }
+    .bloco-reservado_meu { background:var(--destaque); border-color:var(--destaque); color:var(--destaque-texto); }
+
+    .agenda-resumo { display:flex; flex-wrap:wrap; gap:.55rem; margin:1rem 0 .35rem; }
+    .agenda-resumo span { display:inline-flex; align-items:center; gap:.4rem; padding:.4rem .7rem; border:1px solid var(--borda); border-radius:999px; background:var(--superficie); color:var(--texto-suave); font-size:.82rem; }
+    .agenda-resumo strong { color:var(--texto); font-variant-numeric:tabular-nums; }
+    .agenda-titulo { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:.75rem; margin:1.5rem 0 .7rem; }
+    .agenda-titulo h2 { margin:0; }
+    .agenda-titulo p { margin:.25rem 0 0; }
+
+    .horario-pessoa { min-width:0; margin:1.15rem 0 0; padding:1rem; border:1px solid var(--borda); border-radius:14px; background:var(--superficie); }
+    .horario-pessoa legend { padding:0 .35rem; font-weight:700; color:var(--texto); }
+    .horario-pessoa-ajuda { margin:.1rem 0 .8rem; color:var(--texto-suave); font-size:.88rem; }
+    .horario-grupo { margin-top:.9rem; }
+    .horario-grupo h3 { margin:0 0 .55rem; font-size:.88rem; font-weight:600; color:var(--texto-suave); }
+    .horario-opcoes { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:.55rem; }
+    .horario-opcao { position:relative; display:block; min-width:0; cursor:pointer; }
+    .horario-opcao input { position:absolute; width:1px; height:1px; opacity:0; }
+    .horario-opcao-conteudo { display:flex; flex-direction:column; justify-content:center; gap:.18rem; min-height:68px; padding:.65rem .75rem; border:1.5px solid var(--borda); border-radius:11px; background:var(--fundo); transition:border-color .15s ease, background .15s ease, transform .15s ease; }
+    .horario-opcao-conteudo strong { color:var(--texto); font-size:1.08rem; line-height:1.2; font-variant-numeric:tabular-nums; }
+    .horario-opcao-conteudo small { color:var(--texto-suave); font-size:.78rem; }
+    .horario-opcao:hover .horario-opcao-conteudo { border-color:var(--destaque); transform:translateY(-1px); }
+    .horario-opcao input:checked + .horario-opcao-conteudo { border-color:var(--destaque); background:color-mix(in srgb, var(--destaque) 10%, var(--superficie)); box-shadow:0 0 0 1px var(--destaque); }
+    .horario-opcao input:focus-visible + .horario-opcao-conteudo { outline:3px solid color-mix(in srgb, var(--destaque) 28%, transparent); outline-offset:3px; }
+    .horario-opcao-vazio { padding:.8rem; border:1px dashed var(--borda); border-radius:10px; color:var(--texto-suave); font-size:.88rem; }
+    .horario-acoes { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1.25rem; }
+    @media (max-width:600px) {
+        .navdia { align-items:stretch; }
+        .navdia form { width:100%; }
+        .navdia input[type="date"] { flex:1; min-width:0; }
+        .horario-opcoes { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        .calendario { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    }
+    @media (prefers-reduced-motion:reduce) {
+        .horario-opcao-conteudo { transition:none; }
     }
 </style>
 HTML;

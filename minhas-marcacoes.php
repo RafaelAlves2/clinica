@@ -84,57 +84,92 @@ if ($todas) {
     foreach ($st as $r) { $avaliacaoDe[$r['consulta_id']] = $r['estado']; }
 }
 
-// Cartão de uma consulta
+// Mapa estado→chave de filtro
+function marcacao_estado_chave(string $estado): string
+{
+    if ($estado === 'cancelada') { return 'cancelada'; }
+    if ($estado === 'concluida') { return 'passada'; }
+    return 'futura';
+}
+
+// Marca visual (símbolo)
+function marcacao_estado_simbolo(string $estado): string
+{
+    if ($estado === 'cancelada') { return '×'; }
+    if ($estado === 'concluida') { return '✓'; }
+    if ($estado === 'confirmada') { return '◉'; }
+    return '◷';
+}
+
+// Cartão de uma consulta (linha de dashboard)
 function mostrar_consulta(array $c, array $tratDe, array $pedidoDe, array $avaliacaoDe, string $limite, int $horas, bool $acoes): void
 {
     $ini = utc($c['inicio']);
     $fim = utc($c['fim']);
+    $chave = marcacao_estado_chave((string)$c['estado']);
+    $simbolo = marcacao_estado_simbolo((string)$c['estado']);
+    $searchTxt = strtolower($c['paciente'] . ' ' . $c['dentista'] . ' ' . $c['referencia'] . ' ' . $c['estado']);
     ?>
-    <article class="cartao consulta-cartao">
-        <strong><?= e(data_extenso($ini)) ?>, <?= e($ini->format('H:i')) ?> – <?= e($fim->format('H:i')) ?></strong>
-        <span><?= e($c['paciente']) ?> com <?= e($c['dentista']) ?></span>
-        <span class="ajuda">
-            <?= e(rotulo('marcacao', $c['estado'])) ?> ·
-            <a href="marcar-confirmacao.php?ref=<?= e(urlencode($c['referencia'])) ?>"><?= e($c['referencia']) ?></a>
-            · <?= e(formatar_preco($c['preco_total'])) ?>
-        </span>
-        <?php if (!empty($tratDe[$c['id']])): ?>
-            <span class="ajuda">Tratamentos: <?= e(implode(', ', array_column($tratDe[$c['id']], 'nome'))) ?></span>
-        <?php endif; ?>
+    <article class="dash-list-row"
+             data-marcacao-estado="<?= e($chave) ?>"
+             data-marcacao-search="<?= e($searchTxt) ?>">
+        <span class="dash-list-mark" aria-hidden="true"><?= e($simbolo) ?></span>
+        <div class="dash-list-copy">
+            <strong>
+                <?= e(data_extenso($ini)) ?> · <?= e($ini->format('H:i')) ?>–<?= e($fim->format('H:i')) ?>
+            </strong>
+            <span><?= e($c['paciente']) ?> · <?= e($c['dentista']) ?></span>
+            <small>
+                <?= e(rotulo('marcacao', $c['estado'])) ?> ·
+                <a href="marcar-confirmacao.php?ref=<?= e(urlencode($c['referencia'])) ?>"><?= e($c['referencia']) ?></a>
+                · <?= e(formatar_preco($c['preco_total'])) ?>
+            </small>
 
-        <?php if (isset($pedidoDe[$c['id']])): ?>
-            <span class="ajuda">Pedido de alteração pendente para <?= e((new DateTime($pedidoDe[$c['id']]))->format('d/m/Y H:i')) ?>.</span>
-        <?php endif; ?>
-
-        <?php if ($c['estado'] === 'concluida'): ?>
-            <?php if (isset($avaliacaoDe[$c['id']])): ?>
-                <span class="ajuda">
-                    Avaliação: <?= $avaliacaoDe[$c['id']] === 'publicada' ? 'publicada' : ($avaliacaoDe[$c['id']] === 'rejeitada' ? 'não publicada' : 'pendente de moderação') ?>
-                </span>
-            <?php else: ?>
-                <div class="acoes">
-                    <a class="botao" href="avaliar.php?consulta=<?= (int)$c['id'] ?>">⭐ Avaliar consulta</a>
-                </div>
+            <?php if (!empty($tratDe[$c['id']])): ?>
+                <small>Tratamentos: <?= e(implode(', ', array_column($tratDe[$c['id']], 'nome'))) ?></small>
             <?php endif; ?>
-        <?php endif; ?>
 
-        <?php if ($acoes): ?>
-            <?php if ($c['inicio'] >= $limite): ?>
-                <div class="acoes">
-                    <a class="botao botao-secundario" href="alterar-consulta.php?id=<?= (int)$c['id'] ?>">Pedir alteração</a>
+            <?php if (isset($pedidoDe[$c['id']])): ?>
+                <small>Pedido de alteração pendente para <?= e((new DateTime($pedidoDe[$c['id']]))->format('d/m/Y H:i')) ?>.</small>
+            <?php endif; ?>
+
+            <?php if ($c['estado'] === 'concluida'): ?>
+                <?php if (isset($avaliacaoDe[$c['id']])): ?>
+                    <small>
+                        Avaliação:
+                        <?= $avaliacaoDe[$c['id']] === 'publicada' ? 'publicada' : ($avaliacaoDe[$c['id']] === 'rejeitada' ? 'não publicada' : 'pendente de moderação') ?>
+                    </small>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+
+        <div class="dash-list-end">
+            <?php if ($c['estado'] === 'concluida' && !isset($avaliacaoDe[$c['id']])): ?>
+                <a class="dash-list-action" href="avaliar.php?consulta=<?= (int)$c['id'] ?>">Avaliar</a>
+            <?php endif; ?>
+
+            <?php if ($acoes): ?>
+                <?php if ($c['inicio'] >= $limite): ?>
+                    <a class="dash-list-action" href="alterar-consulta.php?id=<?= (int)$c['id'] ?>">Alterar</a>
                     <form method="post" action="minhas-marcacoes.php" class="form-inline"
-                          onsubmit="return confirm('Queres mesmo cancelar esta consulta?');">
+                          onsubmit="return confirm('Queres mesmo cancelar esta consulta?');" style="margin:0;">
                         <?= csrf_campo() ?>
                         <input type="hidden" name="acao" value="cancelar">
                         <input type="hidden" name="consulta" value="<?= (int)$c['id'] ?>">
-                        <button type="submit" class="botao botao-secundario">Cancelar consulta</button>
+                        <button type="submit" class="dash-list-action dash-action-cancelar">
+                            Cancelar
+                        </button>
                     </form>
-                </div>
-            <?php else: ?>
-                <span class="ajuda">Já não é possível cancelar nem alterar online (menos de <?= $horas ?> horas). Contacta a clínica.</span>
+                <?php endif; ?>
             <?php endif; ?>
-        <?php endif; ?>
+        </div>
     </article>
+
+    <?php if ($acoes && $c['inicio'] < $limite): ?>
+        <p class="ajuda" style="margin:0 0 var(--esp-3); font-size:0.8rem;">
+            Já não é possível cancelar nem alterar online (menos de <?= (int)$horas ?> horas). Contacta a clínica.
+        </p>
+    <?php endif; ?>
     <?php
 }
 
@@ -143,40 +178,58 @@ require __DIR__ . '/includes/cabecalho.php';
 echo estilos_conta();
 ?>
 
-<h1>As minhas marcações</h1>
-<?= submenu_conta('marcacoes', nao_lidas($pdo, $u['id'])) ?>
+<div class="dash-root">
 
-<p class="ajuda">Podes cancelar ou pedir alteração com pelo menos <?= (int)$horasCancelar ?> horas de antecedência.</p>
-
-<section class="seccao">
-    <h2>Próximas</h2>
-    <?php if (!$proximas): ?>
-        <div class="alerta alerta-info">Não tens consultas marcadas. <a href="dentistas.php?modo=marcar">Marcar consulta</a></div>
-    <?php else: ?>
-        <div class="grelha grelha-larga">
-            <?php foreach ($proximas as $c) { mostrar_consulta($c, $tratDe, $pedidoDe, $avaliacaoDe, $limite, $horasCancelar, true); } ?>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">As minhas marcações</span>
+            <h1>Marcações</h1>
+            <p>Consulta, altera ou cancela as tuas consultas. Cancelamento online com pelo menos <?= (int)$horasCancelar ?> horas de antecedência.</p>
         </div>
-    <?php endif; ?>
-</section>
-
-<section class="seccao">
-    <h2>Histórico</h2>
-    <?php if (!$passadas): ?>
-        <p class="ajuda">Ainda não tens consultas passadas.</p>
-    <?php else: ?>
-        <div class="grelha grelha-larga">
-            <?php foreach ($passadas as $c) { mostrar_consulta($c, $tratDe, $pedidoDe, $avaliacaoDe, $limite, $horasCancelar, false); } ?>
-        </div>
-    <?php endif; ?>
-</section>
-
-<?php if ($canceladas): ?>
-<section class="seccao">
-    <h2>Canceladas</h2>
-    <div class="grelha grelha-larga">
-        <?php foreach ($canceladas as $c) { mostrar_consulta($c, $tratDe, $pedidoDe, $avaliacaoDe, $limite, $horasCancelar, false); } ?>
     </div>
-</section>
-<?php endif; ?>
+
+    <?= submenu_conta('marcacoes', nao_lidas($pdo, $u['id'])) ?>
+
+    <?php if (!$todas): ?>
+        <div class="dash-empty">
+            <span class="dash-empty-symbol" aria-hidden="true">◷</span>
+            <h3>Ainda não tens marcações</h3>
+            <p>Marca a tua primeira consulta e começa a cuidar do teu sorriso.</p>
+            <a class="botao" href="dentistas.php?modo=marcar">Marcar consulta</a>
+        </div>
+    <?php else: ?>
+        <div data-dashboard>
+            <div class="dash-toolbar">
+                <div class="dash-filter-tabs" role="tablist" aria-label="Filtrar marcações">
+                    <button type="button" data-filtro="todas" class="is-active" aria-pressed="true">Todas</button>
+                    <button type="button" data-filtro="futura" aria-pressed="false">Próximas</button>
+                    <button type="button" data-filtro="passada" aria-pressed="false">Passadas</button>
+                    <button type="button" data-filtro="cancelada" aria-pressed="false">Canceladas</button>
+                </div>
+                <label class="dash-search">
+                    <span aria-hidden="true">⌕</span>
+                    <input type="search" placeholder="Procurar por dentista ou referência" data-search-input aria-label="Procurar marcações">
+                </label>
+            </div>
+
+            <p class="dash-filter-count"><span data-count><?= count($todas) ?></span> marcação(ões) visível(is)</p>
+
+            <div class="dash-list">
+                <?php foreach ($todas as $c): ?>
+                    <?php mostrar_consulta($c, $tratDe, $pedidoDe, $avaliacaoDe, $limite, $horasCancelar, $c['estado'] !== 'cancelada' && $c['estado'] !== 'concluida'); ?>
+                <?php endforeach; ?>
+            </div>
+
+            <div class="dash-empty" data-filter-empty hidden>
+                <span class="dash-empty-symbol" aria-hidden="true">⌕</span>
+                <h3>Nenhuma marcação corresponde</h3>
+                <p>Experimenta outro filtro ou limpa a pesquisa.</p>
+            </div>
+        </div>
+    <?php endif; ?>
+
+</div>
+
+<script src="js/dashboard.js" defer></script>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>

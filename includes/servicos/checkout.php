@@ -95,17 +95,24 @@ function checkout_resumo(PDO $pdo, array $marcacao): array
     ];
 }
 
-function checkout_pagamento_em_curso(PDO $pdo, int $marcacaoId): ?array
+function checkout_pagamento_em_curso(PDO $pdo, int $marcacaoId, string $tipo = 'total'): ?array
 {
-    $st = $pdo->prepare(
-        "SELECT * FROM pagamentos
-          WHERE marcacao_id = ?
-            AND metodo IN ('eletronico_antecipado', 'cartao_online')
-            AND estado IN ('pendente', 'em_processamento')
-          ORDER BY id DESC
-          LIMIT 1"
-    );
-    $st->execute([$marcacaoId]);
+    if ($tipo === 'sinal') {
+        $sql = "SELECT * FROM pagamentos
+                 WHERE marcacao_id = ? AND metodo = 'sinal' AND gateway = 'stripe'
+                   AND estado IN ('pendente','em_processamento','falhado','recusado','cancelado')
+                 ORDER BY id DESC LIMIT 1";
+        $st = $pdo->prepare($sql);
+        $st->execute([$marcacaoId]);
+    } else {
+        $sql = "SELECT * FROM pagamentos
+                 WHERE marcacao_id = ?
+                   AND metodo IN ('eletronico_antecipado', 'cartao_online')
+                   AND estado IN ('pendente', 'em_processamento')
+                 ORDER BY id DESC LIMIT 1";
+        $st = $pdo->prepare($sql);
+        $st->execute([$marcacaoId]);
+    }
     $p = $st->fetch();
     return $p ?: null;
 }
@@ -139,17 +146,27 @@ function checkout_preparar_intencao(
     GatewayStripe $gateway,
     array $marcacao,
     array $resumo,
-    string $email
+    string $email,
+    string $tipo = 'total',
+    string $customerId = ''
 ): array {
-    $valor = round((float)$resumo['valor'], 2);
-    if ($valor <= 0.0001) {
-        return ['ok' => false, 'erro' => 'Não existe valor em falta para pagar.'];
+    $tipo = $tipo === 'sinal' ? 'sinal' : 'total';
+    $pag = checkout_pagamento_em_curso($pdo, (int)$marcacao['id'], $tipo);
+
+    if ($tipo === 'sinal' && !$pag) {
+        return ['ok' => false, 'erro' => 'Não existe um sinal pendente associado a esta marcação.'];
+    }
+    $valor = $tipo === 'sinal'
+        ? round((float)($pag['valor'] ?? 0), 2)
+        : round((float)$resumo['valor'], 2);
+
+    if ($valor <= 0.0001 || $valor > (float)$resumo['valor'] + 0.0001) {
+        return ['ok' => false, 'erro' => 'O valor a pagar já não corresponde ao saldo da marcação. Atualiza a página ou contacta a clínica.'];
     }
     if ($resumo['estimado']) {
         return ['ok' => false, 'erro' => 'Esta marcação inclui preços estimados. O pagamento online só fica disponível depois da avaliação clínica.'];
     }
 
-    $pag = checkout_pagamento_em_curso($pdo, (int)$marcacao['id']);
     $piId = $pag ? trim((string)($pag['referencia_transacao'] ?? '')) : '';
 
     if ($piId !== '' && !str_starts_with($piId, 'pi_')) {
@@ -169,6 +186,9 @@ function checkout_preparar_intencao(
         $status = (string)($pi['status'] ?? '');
         $amountPi = (int)($pi['amount'] ?? 0);
         $amountEsperado = (int)round($valor * 100);
+        $clienteEsperado = trim($customerId);
+        $clienteAtual = trim((string)($pi['customer'] ?? ''));
+        $customerDiferente = $clienteEsperado !== '' && $clienteAtual !== $clienteEsperado;
 
         if ($status === 'succeeded') {
             return [
@@ -180,8 +200,11 @@ function checkout_preparar_intencao(
             ];
         }
 
-        if ($amountPi === $amountEsperado
+        if (!$customerDiferente
+            && $amountPi === $amountEsperado
             && in_array($status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)) {
+            $pdo->prepare("UPDATE pagamentos SET estado='pendente', falhado_em=NULL, cancelado_em=NULL, atualizado_em=NOW() WHERE id=?")
+                ->execute([(int)$pag['id']]);
             return [
                 'ok' => true,
                 'estado' => $status,
@@ -192,7 +215,9 @@ function checkout_preparar_intencao(
             ];
         }
 
-        if ($amountPi === $amountEsperado && $status === 'processing') {
+        if (!$customerDiferente && $amountPi === $amountEsperado && $status === 'processing') {
+            $pdo->prepare("UPDATE pagamentos SET estado='em_processamento', falhado_em=NULL, atualizado_em=NOW() WHERE id=?")
+                ->execute([(int)$pag['id']]);
             return [
                 'ok' => true,
                 'estado' => 'processing',
@@ -217,20 +242,36 @@ function checkout_preparar_intencao(
     }
 
     if (!$pag) {
-        $pag = checkout_criar_pagamento($pdo, $marcacao, $resumo);
+        if ($tipo === 'sinal') {
+            $pdo->prepare(
+                "INSERT INTO pagamentos
+                    (marcacao_id, consulta_id, metodo, valor, estado, gateway, gateway_metodo, prestador)
+                 VALUES (?, ?, 'sinal', ?, 'pendente', 'stripe', 'cartao_online', 'stripe')"
+            )->execute([(int)$marcacao['id'], $resumo['consulta_unica_id'], $valor]);
+            $id = (int)$pdo->lastInsertId();
+            $st = $pdo->prepare('SELECT * FROM pagamentos WHERE id = ?');
+            $st->execute([$id]);
+            $pag = $st->fetch() ?: null;
+        } else {
+            $pag = checkout_criar_pagamento($pdo, $marcacao, $resumo);
+        }
         if (!$pag) {
             return ['ok' => false, 'erro' => 'Não foi possível registar a tentativa de pagamento.'];
         }
     } else {
+        $metodoRegisto = $tipo === 'sinal' ? 'sinal' : 'cartao_online';
         $pdo->prepare(
             "UPDATE pagamentos
-                SET consulta_id = ?, valor = ?, metodo = 'cartao_online',
+                SET consulta_id = ?, valor = ?, metodo = ?,
                     gateway = 'stripe', gateway_metodo = 'cartao_online',
-                    prestador = 'stripe', estado = 'pendente', cartao_marca = NULL, cartao_ultimos4 = NULL
+                    prestador = 'stripe', estado = 'pendente',
+                    falhado_em = NULL, cancelado_em = NULL,
+                    cartao_marca = NULL, cartao_ultimos4 = NULL
               WHERE id = ?"
         )->execute([
             $resumo['consulta_unica_id'],
             $valor,
+            $metodoRegisto,
             (int)$pag['id'],
         ]);
     }
@@ -240,8 +281,9 @@ function checkout_preparar_intencao(
         'pagamento_id' => (int)$pag['id'],
         'referencia'   => (string)$marcacao['referencia'],
         'valor'        => $valor,
-        'tipo'         => 'total',
+        'tipo'         => $tipo,
         'email'        => $email,
+        'customer_id'  => $customerId,
     ]);
     if (empty($pi['ok'])) {
         return ['ok' => false, 'erro' => (string)($pi['erro'] ?? 'Não foi possível iniciar o pagamento.')];
@@ -283,8 +325,8 @@ function checkout_pagamento_confirmacao(PDO $pdo, int $marcacaoId, string $payme
     $st = $pdo->prepare(
         "SELECT * FROM pagamentos
           WHERE marcacao_id = ? AND gateway = 'stripe'
-            AND metodo IN ('eletronico_antecipado', 'cartao_online')
-          ORDER BY (estado = 'pago') DESC, id DESC
+            AND metodo IN ('eletronico_antecipado', 'cartao_online', 'sinal')
+          ORDER BY id DESC
           LIMIT 1"
     );
     $st->execute([$marcacaoId]);

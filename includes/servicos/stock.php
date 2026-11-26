@@ -95,6 +95,16 @@ function stock_registar_movimento(
 ): int {
     $pdo->beginTransaction();
     try {
+        $stAtivo = $pdo->prepare('SELECT ativo FROM stock_materiais WHERE id = ? FOR UPDATE');
+        $stAtivo->execute([$materialId]);
+        $ativo = $stAtivo->fetchColumn();
+        if ($ativo === false) {
+            throw new RuntimeException('Material não encontrado.');
+        }
+        if (!(int)$ativo) {
+            throw new RuntimeException('Este material está desativado. Reativa-o antes de registar movimentos.');
+        }
+
         $depois = _stock_aplicar_movimento($pdo, $materialId, $tipo, $quantidade, $motivo, $utilizadorId);
         $pdo->commit();
         return $depois;
@@ -137,15 +147,23 @@ function stock_criar_encomenda(
              VALUES (?, ?, ?, ?)'
         );
 
+        $linhasInseridas = 0;
         foreach ($linhas as $matId => $qtd) {
             $st = $pdo->prepare('SELECT preco_unitario FROM stock_materiais WHERE id = ? AND ativo = 1');
             $st->execute([(int)$matId]);
             $preco = $st->fetchColumn();
-            if ($preco === false) { continue; }
+            if ($preco === false) {
+                throw new RuntimeException('Um dos materiais selecionados já não existe ou está desativado. Atualiza a página e tenta novamente.');
+            }
 
             $preco = $preco !== null ? (float)$preco : null;
             $ins->execute([$encId, (int)$matId, (int)$qtd, $preco]);
+            $linhasInseridas++;
             if ($preco !== null) { $total += $preco * (int)$qtd; }
+        }
+
+        if ($linhasInseridas === 0) {
+            throw new RuntimeException('A encomenda não contém materiais válidos. Seleciona pelo menos um material ativo.');
         }
 
         $pdo->prepare('UPDATE stock_encomendas SET total = ? WHERE id = ?')->execute([$total, $encId]);

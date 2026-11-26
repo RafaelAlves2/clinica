@@ -53,59 +53,135 @@ $tituloPagina = 'Pagamentos e dívidas';
 require __DIR__ . '/includes/cabecalho.php';
 echo estilos_conta();
 ?>
-<h1>Pagamentos e dívidas</h1>
-<?= submenu_conta('pagamentos', nao_lidas($pdo, $u['id'])) ?>
 
-<div class="grelha seccao">
-    <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($totalPago)) ?></p><p class="ajuda">Total pago (líquido)</p></div>
-    <div class="cartao texto-centro"><p class="numero"><?= e(formatar_preco($totalDivida)) ?></p><p class="ajuda">Total em dívida</p></div>
-</div>
+<div class="dash-root">
 
-<section class="seccao">
-    <h2>Por marcação</h2>
+    <div class="dash-page-top">
+        <div>
+            <span class="dash-kicker">Pagamentos</span>
+            <h1>Pagamentos e dívidas</h1>
+            <p>Resumo do que está pago e do que falta regularizar por marcação.</p>
+        </div>
+    </div>
+
+    <?= submenu_conta('pagamentos', nao_lidas($pdo, $u['id'])) ?>
+
+    <div class="dash-stat-grid">
+        <a href="#por-marcacao">
+            <span>Total pago</span>
+            <strong><?= e(formatar_preco($totalPago)) ?></strong>
+            <small>Líquido de reembolsos</small>
+        </a>
+        <a href="#por-marcacao">
+            <span>Em dívida</span>
+            <strong><?= e(formatar_preco($totalDivida)) ?></strong>
+            <small><?= $totalDivida > 0.0001 ? 'Por regularizar' : 'Tudo em dia' ?></small>
+        </a>
+    </div>
+
+    <div class="dash-section-title" id="por-marcacao">
+        <div>
+            <span class="dash-kicker">Por marcação</span>
+            <h2>Resumo <span>financeiro</span></h2>
+        </div>
+    </div>
+
     <?php if (!$marcacoes): ?>
-        <div class="alerta alerta-info">Ainda não tem marcações.</div>
+        <div class="dash-empty">
+            <span class="dash-empty-symbol" aria-hidden="true">€</span>
+            <h3>Ainda não tens marcações</h3>
+            <p>Quando marcares a primeira consulta, o resumo aparece aqui.</p>
+            <a class="botao" href="marcar.php">Marcar consulta</a>
+        </div>
     <?php else: ?>
-        <div class="grelha grelha-larga">
+        <div class="dash-list">
         <?php foreach ($marcacoes as $m):
             $total = round((float)$m['total_previsto'], 2);
             $pago = round((float)$m['pago_liq'], 2);
             $div = max(0.0, round($total - $pago, 2));
             $estado = $div <= 0.0001 && $total > 0 ? 'Pago' : ($pago > 0 ? 'Parcialmente pago' : 'Pendente');
+            $pillClasse = $div <= 0.0001 && $total > 0
+                ? 'dash-pill-completed'
+                : ($pago > 0 ? 'dash-pill-working' : 'dash-pill-planning');
+            $pillLabel = $div <= 0.0001 && $total > 0
+                ? 'Pago'
+                : ($pago > 0 ? 'Parcial' : 'Pendente');
         ?>
-            <article class="cartao">
-                <strong><?= e($m['referencia']) ?></strong>
-                <div class="ajuda"><?= e((new DateTime($m['criado_em']))->format('d/m/Y H:i')) ?> · <?= e(rotulo('marcacao', $m['estado'])) ?></div>
-                <div>Total: <strong><?= e(formatar_preco($total)) ?></strong></div>
-                <div>Pago: <?= e(formatar_preco($pago)) ?><?php if ((float)$m['reembolsado'] > 0): ?> <span class="ajuda">(reembolsado <?= e(formatar_preco($m['reembolsado'])) ?>)</span><?php endif; ?></div>
-                <div>Em dívida: <strong><?= e(formatar_preco($div)) ?></strong></div>
-                <div>Estado financeiro: <span class="estado-etiqueta"><?= e($estado) ?></span></div>
-                <?php if ($onlineDisponivel && $m['estado'] !== 'cancelada' && (int)$m['tem_preco_estimado'] !== 1 && $div > 0.0001): ?>
-                    <p><a class="botao" href="checkout.php?ref=<?= e(urlencode($m['referencia'])) ?>">Pagar online</a></p>
-                <?php endif; ?>
-                <p><a class="botao botao-secundario" href="marcar-confirmacao.php?ref=<?= e(urlencode($m['referencia'])) ?>">Ver marcação</a></p>
-            </article>
+            <div class="dash-list-row">
+                <span class="dash-list-mark" aria-hidden="true">€</span>
+                <div class="dash-list-copy">
+                    <strong><?= e($m['referencia']) ?></strong>
+                    <span><?= e((new DateTime($m['criado_em']))->format('d/m/Y H:i')) ?> · <?= e(rotulo('marcacao', $m['estado'])) ?></span>
+                    <small>
+                        Total: <?= e(formatar_preco($total)) ?>
+                        · Pago: <?= e(formatar_preco($pago)) ?>
+                        <?php if ((float)$m['reembolsado'] > 0): ?>
+                            (reembolsado <?= e(formatar_preco($m['reembolsado'])) ?>)
+                        <?php endif; ?>
+                        · Em dívida: <strong><?= e(formatar_preco($div)) ?></strong>
+                    </small>
+                </div>
+                <div class="dash-list-end">
+                    <span class="dash-pill <?= e($pillClasse) ?>">
+                        <span class="dash-pill-dot" aria-hidden="true"></span>
+                        <?= e($pillLabel) ?>
+                    </span>
+                    <?php if ($onlineDisponivel && $m['estado'] !== 'cancelada' && (int)$m['tem_preco_estimado'] !== 1 && $div > 0.0001): ?>
+                        <a class="dash-list-action" href="checkout.php?ref=<?= e(urlencode($m['referencia'])) ?>">Pagar</a>
+                    <?php endif; ?>
+                    <a class="dash-list-action" href="marcar-confirmacao.php?ref=<?= e(urlencode($m['referencia'])) ?>">Ver</a>
+                </div>
+            </div>
         <?php endforeach; ?>
         </div>
     <?php endif; ?>
-</section>
 
-<section class="seccao">
-    <h2>Histórico de pagamentos</h2>
+    <div class="dash-section-title">
+        <div>
+            <span class="dash-kicker">Histórico</span>
+            <h2>Movimentos de <span>pagamento</span></h2>
+        </div>
+    </div>
+
     <?php if (!$pagamentos): ?>
-        <div class="alerta alerta-info">Sem registos de pagamento.</div>
+        <div class="dash-empty">
+            <span class="dash-empty-symbol" aria-hidden="true">≡</span>
+            <h3>Sem registos de pagamento</h3>
+            <p>Os movimentos aparecem aqui depois do primeiro pagamento.</p>
+        </div>
     <?php else: ?>
         <div class="tabela-scroll">
             <table class="tabela">
-                <thead><tr><th>Data</th><th>Marcação</th><th>Método</th><th>Valor</th><th>Estado</th><th>Referência</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Marcação</th>
+                        <th>Método</th>
+                        <th>Valor</th>
+                        <th>Estado</th>
+                        <th>Referência</th>
+                    </tr>
+                </thead>
                 <tbody>
                 <?php foreach ($pagamentos as $p): ?>
                     <tr>
                         <td><?= e((new DateTime($p['data_pagamento'] ?: $p['pago_em'] ?: $p['criado_em']))->format('d/m/Y H:i')) ?></td>
-                        <td><a href="marcar-confirmacao.php?ref=<?= e(urlencode($p['marcacao_ref'])) ?>"><?= e($p['marcacao_ref']) ?></a></td>
-                        <td><?= e(pagamento_metodo_legivel($p['metodo'], $p['metodo_detalhe'] ?? null)) ?><?php if (($p['cartao_marca'] ?? '') !== '' && ($p['cartao_ultimos4'] ?? '') !== ''): ?><br><span class="ajuda"><?= e(pagamento_cartao_legivel((string)$p['cartao_marca'], (string)$p['cartao_ultimos4'])) ?></span><?php endif; ?></td>
-                        <td><?= e(formatar_preco($p['valor'])) ?><?php if ((float)$p['valor_reembolsado']>0): ?><br><span class="ajuda">Reemb. <?= e(formatar_preco($p['valor_reembolsado'])) ?></span><?php endif; ?></td>
-                        <td><span class="estado-etiqueta"><?= e(pagamento_estado_legivel($p['estado'])) ?></span></td>
+                        <td>
+                            <a href="marcar-confirmacao.php?ref=<?= e(urlencode($p['marcacao_ref'])) ?>"><?= e($p['marcacao_ref']) ?></a>
+                        </td>
+                        <td>
+                            <?= e(pagamento_metodo_legivel($p['metodo'], $p['metodo_detalhe'] ?? null)) ?>
+                            <?php if (($p['cartao_marca'] ?? '') !== '' && ($p['cartao_ultimos4'] ?? '') !== ''): ?>
+                                <br><span class="ajuda"><?= e(pagamento_cartao_legivel((string)$p['cartao_marca'], (string)$p['cartao_ultimos4'])) ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?= e(formatar_preco($p['valor'])) ?>
+                            <?php if ((float)$p['valor_reembolsado'] > 0): ?>
+                                <br><span class="ajuda">Reemb. <?= e(formatar_preco($p['valor_reembolsado'])) ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td><span class="etiqueta"><?= e(pagamento_estado_legivel($p['estado'])) ?></span></td>
                         <td><span class="ajuda"><?= e($p['referencia_transacao'] ?? '—') ?></span></td>
                     </tr>
                 <?php endforeach; ?>
@@ -113,6 +189,7 @@ echo estilos_conta();
             </table>
         </div>
     <?php endif; ?>
-</section>
+
+</div>
 
 <?php require __DIR__ . '/includes/rodape.php'; ?>
