@@ -165,6 +165,7 @@ if (!is_array($css_extra)) {
             <?php endif; ?>
         </nav>
         <div class="topo-acoes">
+            <button type="button" id="botao-idioma" class="botao-idioma" aria-label="Mudar idioma para inglês" title="Mudar para inglês">PT</button>
             <button type="button" id="botao-tema" class="botao-tema"
                     aria-label="Alternar entre modo claro e modo escuro" aria-pressed="false" title="Alternar tema">
                 <span id="icone-tema" aria-hidden="true">🌙</span>
